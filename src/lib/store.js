@@ -297,6 +297,24 @@ async function sendMagicLink(request) {
   return { ok: true, error: null };
 }
 
+/**
+ * Invoke the `send-confirmation-email` Supabase Edge Function. The function
+ * uses Resend to deliver a "Onboarding submitted — your reference ID" email
+ * to the candidate. RESEND_API_KEY is held server-side as a function secret;
+ * the client never sees it.
+ */
+async function sendConfirmationEmail({ email, reference, givenName, familyName }) {
+  if (!hasSupabase) return { ok: false, error: 'Supabase not configured' };
+  const { data, error } = await supabase.functions.invoke('send-confirmation-email', {
+    body: { email, reference, givenName, familyName },
+  });
+  if (error) {
+    console.error('[store] send-confirmation-email invoke failed:', error);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, data };
+}
+
 export async function updateRequest(id, patch) {
   if (hasSupabase) {
     const row = {};
@@ -390,10 +408,15 @@ export async function submitCandidateForm(id, formData) {
     const req = await getRequest(id);
     if (!req) return null;
     // 1) Write to Source of Truth.
+    //    - `onboarding_status: 'uncommitted'` is the initial lifecycle state
+    //      for any submission. HR may transition it later (e.g., 'committed').
+    //    - We deliberately DO NOT collect or store bank account details
+    //      anywhere in the application.
     const row = {
       request_id: id,
       reference,
       submitted_at: submittedAt,
+      onboarding_status: 'uncommitted',
       given_name: formData.givenName,
       family_name: formData.familyName,
       preferred_name: formData.preferredName || null,
@@ -410,7 +433,6 @@ export async function submitCandidateForm(id, formData) {
       emergency_phone: formData.emergencyPhone,
       relationship: formData.relationship || null,
       tfn: formData.tfn,
-      bank: formData.bank,
     };
     const { error: insertErr } = await supabase
       .from('identity_records')
@@ -425,6 +447,20 @@ export async function submitCandidateForm(id, formData) {
       submittedAt,
       reference,
     });
+
+    // 3) Fire-and-forget confirmation email via Edge Function.
+    //    We don't block the candidate's "you're done" screen on this — if
+    //    the email fails (Resend down, key missing, etc.), the submission
+    //    is still durable and HR can resend manually.
+    sendConfirmationEmail({
+      email: req.email,
+      reference,
+      givenName: formData.givenName || req.givenName,
+      familyName: formData.familyName || req.familyName,
+    }).catch((err) => {
+      console.warn('[store] confirmation email failed (non-blocking):', err);
+    });
+
     return updated;
   }
 

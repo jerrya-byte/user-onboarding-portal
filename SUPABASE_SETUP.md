@@ -97,7 +97,11 @@ create table if not exists public.identity_records (
   emergency_phone   text,
   relationship      text,
   tfn               text,   -- In production, encrypt at rest. Prototype only.
-  bank              text
+
+  -- Lifecycle state of the candidate's submission. Defaults to
+  -- 'uncommitted' on first submit; HR may transition to other states
+  -- (e.g., 'committed') after review.
+  onboarding_status text not null default 'uncommitted'
 );
 
 -- ============================================================

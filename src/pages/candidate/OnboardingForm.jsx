@@ -121,7 +121,6 @@ function FormView({ req, isPreview }) {
     emergencyPhone: '',
     relationship: '',
     tfn: '',
-    bank: '',
   }));
 
   const [errors, setErrors] = useState({});
@@ -146,7 +145,6 @@ function FormView({ req, isPreview }) {
     if (!form.tfn.trim()) e.tfn = 'Required';
     else if (!/^\d{3}\s?\d{3}\s?\d{3}$/.test(form.tfn.replace(/\s/g, '').replace(/(.{3})/g, '$1 ').trim()))
       e.tfn = 'TFN must be 9 digits';
-    if (!form.bank.trim()) e.bank = 'Required';
     return e;
   };
 
@@ -157,7 +155,7 @@ function FormView({ req, isPreview }) {
     setErrors(es);
     setTouched(
       [
-        'dob','mobile','emergencyName','emergencyPhone','tfn','bank',
+        'dob','mobile','emergencyName','emergencyPhone','tfn',
       ].reduce((acc, k) => ({ ...acc, [k]: true }), {})
     );
     if (Object.keys(es).length > 0) {
@@ -326,19 +324,6 @@ function FormView({ req, isPreview }) {
                 onChange={set('tfn')}
                 onBlur={onBlur('tfn')}
                 error={errVisible('tfn')}
-              />
-            </Field>
-            <Field
-              label="Bank Account for Salary Payment"
-              required
-              error={errVisible('bank') ? errors.bank : null}
-            >
-              <TextInput
-                placeholder="BSB — Account Number"
-                value={form.bank}
-                onChange={set('bank')}
-                onBlur={onBlur('bank')}
-                error={errVisible('bank')}
               />
             </Field>
           </Card>
