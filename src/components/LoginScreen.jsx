@@ -13,20 +13,36 @@ export default function LoginScreen() {
     setError('');
     setSigningIn(true);
     try {
-      await instance.loginPopup(LOGIN_REQUEST);
-      // MsalProvider re-renders the tree; ProtectedRoute will let us through.
+      const result = await instance.loginPopup(LOGIN_REQUEST);
+
+      // Belt-and-braces: explicitly mark the returned account as active.
+      // Our msal.js event callback already does this on LOGIN_SUCCESS, but
+      // doing it here too removes any race between event delivery and the
+      // navigation below.
+      const account = result?.account || instance.getAllAccounts()[0];
+      if (account) instance.setActiveAccount(account);
+
+      // Hard-navigate (rather than relying on React state propagation
+      // from inside the popup callback). This forces a fresh app boot
+      // where MSAL hydrates from sessionStorage, ProtectedRoute sees the
+      // cached account, and the dashboard renders cleanly. It avoids a
+      // class of "popup succeeded but UI stays on login screen" bugs.
+      window.location.assign('/hr/dashboard');
     } catch (err) {
       console.error('Sign-in failed:', err);
       // user-cancelled popups are common — keep the message gentle
-      if (err && err.errorCode === 'user_cancelled') {
-        setError('Sign-in was cancelled. Click the button to try again.');
+      if (err && (err.errorCode === 'user_cancelled' || err.errorCode === 'popup_window_error')) {
+        setError(
+          err.errorCode === 'user_cancelled'
+            ? 'Sign-in was cancelled. Click the button to try again.'
+            : 'Your browser blocked the sign-in popup. Please allow popups for this site and try again.'
+        );
       } else {
         setError(
           err?.message ||
             'Sign-in failed. Please try again, or contact your IT administrator.'
         );
       }
-    } finally {
       setSigningIn(false);
     }
   };

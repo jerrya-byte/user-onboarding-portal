@@ -20,6 +20,11 @@ export const msalInstance = new PublicClientApplication({
     authority: `https://login.microsoftonline.com/${TENANT_ID}`,
     redirectUri: window.location.origin,
     postLogoutRedirectUri: window.location.origin,
+    // Don't navigate the popup back to its original URL after auth —
+    // this avoids the popup briefly rendering our SPA, which can race
+    // with MSAL's response handling and produce "logged in but UI
+    // still shows login screen" loops.
+    navigateToLoginRequestUrl: false,
   },
   cache: {
     cacheLocation: 'sessionStorage',
@@ -27,24 +32,36 @@ export const msalInstance = new PublicClientApplication({
   },
 });
 
-// Initialise — required in msal-browser v3 before any other call.
+// Initialise — required in msal-browser v3+ before any other call.
 // We surface a promise so the React provider can await it.
 export const msalReady = msalInstance.initialize().then(() => {
-  // If a session is already cached, mark the first account active so
-  // useAccount() / useMsal() return it immediately on first render.
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length > 0 && !msalInstance.getActiveAccount()) {
-    msalInstance.setActiveAccount(accounts[0]);
+  // Hydrate active account from cache so useAccount() / AuthenticatedTemplate
+  // report the right state on the very first render after a refresh.
+  try {
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0 && !msalInstance.getActiveAccount()) {
+      msalInstance.setActiveAccount(accounts[0]);
+    }
+  } catch (err) {
+    console.error('MSAL: failed to hydrate active account', err);
   }
 
-  // Keep activeAccount in sync after a successful login.
+  // Keep activeAccount in sync after a successful login or token acquisition.
   msalInstance.addEventCallback((event) => {
-    if (
-      event.eventType === EventType.LOGIN_SUCCESS &&
-      event.payload &&
-      event.payload.account
-    ) {
-      msalInstance.setActiveAccount(event.payload.account);
+    try {
+      if (
+        (event.eventType === EventType.LOGIN_SUCCESS ||
+          event.eventType === EventType.ACQUIRE_TOKEN_SUCCESS) &&
+        event.payload &&
+        event.payload.account
+      ) {
+        msalInstance.setActiveAccount(event.payload.account);
+      }
+      if (event.eventType === EventType.LOGOUT_SUCCESS) {
+        msalInstance.setActiveAccount(null);
+      }
+    } catch (err) {
+      console.error('MSAL event callback error', err);
     }
   });
 });
