@@ -2,6 +2,7 @@ import {
   AuthenticatedTemplate,
   UnauthenticatedTemplate,
   useMsal,
+  useIsAuthenticated,
 } from '@azure/msal-react';
 import LoginScreen from './LoginScreen';
 
@@ -11,7 +12,16 @@ import LoginScreen from './LoginScreen';
  * use their own magic-link flow.
  */
 export default function ProtectedRoute({ children }) {
-  const { inProgress } = useMsal();
+  const { instance, inProgress } = useMsal();
+  const isAuthed = useIsAuthenticated();
+  console.log(
+    '[ProtectedRoute] render — isAuthed:',
+    isAuthed,
+    'inProgress:',
+    inProgress,
+    'accounts:',
+    instance.getAllAccounts().map((a) => a.username)
+  );
 
   // While MSAL is mid-flow (handling a redirect, etc.) show a quiet
   // placeholder so we don't briefly flash the login screen.

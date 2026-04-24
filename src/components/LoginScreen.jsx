@@ -13,20 +13,24 @@ export default function LoginScreen() {
     setError('');
     setSigningIn(true);
     try {
+      console.log('[LoginScreen] calling loginPopup…');
       const result = await instance.loginPopup(LOGIN_REQUEST);
+      console.log('[LoginScreen] loginPopup resolved. account:', result?.account?.username, 'all accounts now:', instance.getAllAccounts().map(a => a.username));
 
       // Belt-and-braces: explicitly mark the returned account as active.
-      // Our msal.js event callback already does this on LOGIN_SUCCESS, but
-      // doing it here too removes any race between event delivery and the
-      // navigation below.
       const account = result?.account || instance.getAllAccounts()[0];
-      if (account) instance.setActiveAccount(account);
+      if (account) {
+        instance.setActiveAccount(account);
+        console.log('[LoginScreen] set active account:', account.username);
+      } else {
+        console.warn('[LoginScreen] no account on loginPopup result and no cached accounts!');
+      }
 
       // Hard-navigate (rather than relying on React state propagation
       // from inside the popup callback). This forces a fresh app boot
-      // where MSAL hydrates from sessionStorage, ProtectedRoute sees the
-      // cached account, and the dashboard renders cleanly. It avoids a
-      // class of "popup succeeded but UI stays on login screen" bugs.
+      // where MSAL hydrates from cache, ProtectedRoute sees the cached
+      // account, and the dashboard renders cleanly.
+      console.log('[LoginScreen] navigating to /hr/dashboard');
       window.location.assign('/hr/dashboard');
     } catch (err) {
       console.error('Sign-in failed:', err);

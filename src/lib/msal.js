@@ -20,14 +20,13 @@ export const msalInstance = new PublicClientApplication({
     authority: `https://login.microsoftonline.com/${TENANT_ID}`,
     redirectUri: window.location.origin,
     postLogoutRedirectUri: window.location.origin,
-    // Don't navigate the popup back to its original URL after auth —
-    // this avoids the popup briefly rendering our SPA, which can race
-    // with MSAL's response handling and produce "logged in but UI
-    // still shows login screen" loops.
     navigateToLoginRequestUrl: false,
   },
   cache: {
-    cacheLocation: 'sessionStorage',
+    // localStorage (not sessionStorage) so the session survives page
+    // navigations cleanly and isn't lost between popup window and main
+    // window contexts.
+    cacheLocation: 'localStorage',
     storeAuthStateInCookie: false,
   },
 });
@@ -39,16 +38,19 @@ export const msalReady = msalInstance.initialize().then(() => {
   // report the right state on the very first render after a refresh.
   try {
     const accounts = msalInstance.getAllAccounts();
+    console.log('[MSAL] init complete. cached accounts:', accounts.length, accounts.map(a => a.username));
     if (accounts.length > 0 && !msalInstance.getActiveAccount()) {
       msalInstance.setActiveAccount(accounts[0]);
+      console.log('[MSAL] set active account:', accounts[0].username);
     }
   } catch (err) {
-    console.error('MSAL: failed to hydrate active account', err);
+    console.error('[MSAL] failed to hydrate active account', err);
   }
 
   // Keep activeAccount in sync after a successful login or token acquisition.
   msalInstance.addEventCallback((event) => {
     try {
+      console.log('[MSAL] event:', event.eventType, event.payload?.account?.username);
       if (
         (event.eventType === EventType.LOGIN_SUCCESS ||
           event.eventType === EventType.ACQUIRE_TOKEN_SUCCESS) &&
@@ -61,7 +63,7 @@ export const msalReady = msalInstance.initialize().then(() => {
         msalInstance.setActiveAccount(null);
       }
     } catch (err) {
-      console.error('MSAL event callback error', err);
+      console.error('[MSAL] event callback error', err);
     }
   });
 });
