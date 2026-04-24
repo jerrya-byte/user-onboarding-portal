@@ -10,6 +10,37 @@ import { hasSupabase } from '../../lib/supabase';
 const LEVELS = ['APS 3', 'APS 4', 'APS 5', 'APS 6', 'EL 1', 'EL 2', 'SES Band 1'];
 const LOCATIONS = ['Canberra ACT', 'Sydney NSW', 'Melbourne VIC', 'Brisbane QLD', 'Perth WA'];
 
+// Allowlist of public webmail domains. The candidate doesn't have a work
+// email yet at the point of onboarding, so the magic link MUST go to a
+// personal mailbox. Anything not on this list (corporate domains, .gov,
+// .edu, etc.) is rejected with a friendly nudge to use a personal email.
+const PUBLIC_EMAIL_DOMAINS = new Set([
+  // Google
+  'gmail.com', 'googlemail.com',
+  // Microsoft
+  'outlook.com', 'outlook.com.au', 'hotmail.com', 'hotmail.com.au',
+  'live.com', 'live.com.au', 'msn.com',
+  // Apple
+  'icloud.com', 'me.com', 'mac.com',
+  // Yahoo
+  'yahoo.com', 'yahoo.com.au', 'yahoo.co.uk', 'ymail.com',
+  // Other major webmail
+  'aol.com', 'protonmail.com', 'proton.me', 'pm.me',
+  'mail.com', 'gmx.com', 'gmx.net', 'fastmail.com', 'fastmail.fm',
+  'zoho.com', 'yandex.com', 'tutanota.com', 'tuta.io', 'duck.com',
+  // Australian ISP / public mailboxes
+  'bigpond.com', 'bigpond.net.au', 'bigpond.com.au',
+  'optusnet.com.au', 'iinet.net.au', 'tpg.com.au', 'internode.on.net',
+  'iprimus.com.au', 'westnet.com.au', 'dodo.com.au',
+]);
+
+function isPublicEmailDomain(email) {
+  const at = email.lastIndexOf('@');
+  if (at < 0) return false;
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  return PUBLIC_EMAIL_DOMAINS.has(domain);
+}
+
 const EMPTY = {
   givenName: '',
   familyName: '',
@@ -43,6 +74,9 @@ export default function NewRequest() {
     if (!form.familyName.trim()) e.familyName = 'Required';
     if (!form.email.trim()) e.email = 'Required';
     else if (!/^\S+@\S+\.\S+$/.test(form.email)) e.email = 'Not a valid email';
+    else if (!isPublicEmailDomain(form.email))
+      e.email =
+        'Please use a personal email address (e.g. Gmail, Outlook, iCloud, Yahoo). The candidate won\u2019t have a work email until after onboarding.';
     if (!form.position.trim()) e.position = 'Required';
     if (!form.division.trim()) e.division = 'Required';
     if (!form.commencement) e.commencement = 'Required';
@@ -140,14 +174,14 @@ export default function NewRequest() {
               </Field>
             </div>
             <Field
-              label="Work Email Address"
+              label="Personal Email Address"
               required
-              hint="Enter the candidate's official work email. The magic link will be sent to this address."
+              hint="Use the candidate's personal email (Gmail, Outlook, iCloud, Yahoo, etc.). The magic link will be sent here. The candidate won't have a work email until after onboarding."
               error={errVisible('email') ? errors.email : null}
             >
               <TextInput
                 type="email"
-                placeholder="james.nguyen@agency.gov.au"
+                placeholder="e.g. james.nguyen@gmail.com"
                 value={form.email}
                 onChange={set('email')}
                 onBlur={onBlur('email')}
