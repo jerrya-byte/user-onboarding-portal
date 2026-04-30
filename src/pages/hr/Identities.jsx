@@ -8,38 +8,33 @@ import { formatDate, formatDateTime } from '../../lib/format';
 
 // All identity_records columns Jerry asked us to display, in order.
 // `id` and `request_id` are intentionally omitted per requirements.
+// TFN was removed (column dropped from DB).
 const COLUMNS = [
-  { key: 'reference',        label: 'Reference' },
-  { key: 'submittedAt',      label: 'Submitted',          fmt: (v) => formatDateTime(v) },
-  { key: 'givenName',        label: 'Given name' },
-  { key: 'familyName',       label: 'Family name' },
-  { key: 'preferredName',    label: 'Preferred name' },
-  { key: 'dob',              label: 'Date of birth',      fmt: (v) => formatDate(v) },
-  { key: 'email',            label: 'Email' },
-  { key: 'mobile',           label: 'Mobile' },
-  { key: 'position',         label: 'Position' },
-  { key: 'level',            label: 'Level' },
-  { key: 'division',         label: 'Division' },
-  { key: 'commencement',     label: 'Commencement',       fmt: (v) => formatDate(v) },
-  { key: 'managerName',      label: 'Manager' },
-  { key: 'location',         label: 'Location' },
-  { key: 'emergencyName',    label: 'Emergency contact' },
-  { key: 'emergencyPhone',   label: 'Emergency phone' },
-  { key: 'relationship',     label: 'Relationship' },
-  { key: 'tfn',              label: 'TFN',                fmt: (v) => maskTfn(v) },
-  { key: 'identityState',    label: 'Identity state' },
-  { key: 'onboardingStatus', label: 'Onboarding status' },
-  { key: 'terminationDate',  label: 'Termination date',   fmt: (v) => formatDate(v) },
+  { key: 'reference',         label: 'Reference' },
+  { key: 'submittedAt',       label: 'Submitted',          fmt: (v) => formatDateTime(v) },
+  { key: 'givenName',         label: 'Given name' },
+  { key: 'familyName',        label: 'Family name' },
+  { key: 'preferredName',     label: 'Preferred name' },
+  { key: 'dob',               label: 'Date of birth',      fmt: (v) => formatDate(v) },
+  { key: 'email',             label: 'Email' },
+  { key: 'mobile',            label: 'Mobile' },
+  { key: 'position',          label: 'Position' },
+  { key: 'positionNumber',    label: 'Position number' },
+  { key: 'level',             label: 'Level' },
+  { key: 'groupName',         label: 'Group' },
+  { key: 'division',          label: 'Division' },
+  { key: 'branch',            label: 'Branch' },
+  { key: 'commencement',      label: 'Commencement',       fmt: (v) => formatDate(v) },
+  { key: 'managerName',       label: 'Manager' },
+  { key: 'location',          label: 'Location' },
+  { key: 'securityClearance', label: 'Security clearance' },
+  { key: 'emergencyName',     label: 'Emergency contact' },
+  { key: 'emergencyPhone',    label: 'Emergency phone' },
+  { key: 'relationship',      label: 'Relationship' },
+  { key: 'identityState',     label: 'Identity state' },
+  { key: 'onboardingStatus',  label: 'Onboarding status' },
+  { key: 'terminationDate',   label: 'Termination date',   fmt: (v) => formatDate(v) },
 ];
-
-// Mask the TFN to last 3 digits — full numbers are sensitive and HR
-// should reveal them deliberately rather than have them on a list view.
-function maskTfn(v) {
-  if (!v) return '';
-  const digits = String(v).replace(/\s+/g, '');
-  if (digits.length <= 3) return digits;
-  return '•••\u00A0•••\u00A0' + digits.slice(-3);
-}
 
 // Columns whose values are searched when HR types in the search box.
 const SEARCH_KEYS = [
@@ -49,10 +44,14 @@ const SEARCH_KEYS = [
   'preferredName',
   'email',
   'position',
+  'positionNumber',
   'level',
+  'groupName',
   'division',
+  'branch',
   'managerName',
   'location',
+  'securityClearance',
 ];
 
 export default function Identities() {
@@ -215,7 +214,7 @@ export default function Identities() {
                       const raw = rec[c.key];
                       const display = c.fmt ? c.fmt(raw) : (raw ?? '');
                       return (
-                        <td key={c.key} className={c.key === 'tfn' ? 'font-mono text-[12px]' : ''}>
+                        <td key={c.key}>
                           {display || <span className="text-ink-soft">—</span>}
                         </td>
                       );

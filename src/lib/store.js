@@ -121,8 +121,11 @@ function fromSupabase(row) {
     familyName: row.family_name,
     email: row.email,
     position: row.position,
+    positionNumber: row.position_number,
     level: row.level,
     division: row.division,
+    branch: row.branch,
+    groupName: row.group_name,
     commencement: row.commencement,
     managerName: row.manager_name,
     managerEmail: row.manager_email,
@@ -141,8 +144,11 @@ function toSupabase(input) {
     family_name: input.familyName,
     email: input.email,
     position: input.position,
+    position_number: input.positionNumber,
     level: input.level,
     division: input.division,
+    branch: input.branch,
+    group_name: input.groupName,
     commencement: input.commencement || null,
     manager_name: input.managerName,
     manager_email: input.managerEmail,
@@ -229,8 +235,11 @@ function fromIdentityRecord(row) {
     preferredName: row.preferred_name,
     dob: row.dob,
     position: row.position,
+    positionNumber: row.position_number,
     level: row.level,
     division: row.division,
+    branch: row.branch,
+    groupName: row.group_name,
     commencement: row.commencement,
     managerName: row.manager_name,
     location: row.location,
@@ -240,7 +249,7 @@ function fromIdentityRecord(row) {
     emergencyName: row.emergency_name,
     emergencyPhone: row.emergency_phone,
     relationship: row.relationship,
-    tfn: row.tfn,
+    securityClearance: row.security_clearance,
     onboardingStatus: row.onboarding_status,
     terminationDate: row.termination_date,
   };
@@ -345,8 +354,11 @@ export async function listIdentityRecords() {
       preferredName: r.submission.preferredName || null,
       dob: r.submission.dob || null,
       position: r.submission.position || r.position,
+      positionNumber: r.submission.positionNumber || r.positionNumber || null,
       level: r.submission.level || r.level,
       division: r.submission.division || r.division,
+      branch: r.submission.branch || r.branch || null,
+      groupName: r.submission.groupName || r.groupName || null,
       commencement: r.submission.commencement || r.commencement,
       managerName: r.submission.managerName || r.managerName,
       location: r.submission.location || r.location,
@@ -356,8 +368,8 @@ export async function listIdentityRecords() {
       emergencyName: r.submission.emergencyName || null,
       emergencyPhone: r.submission.emergencyPhone || null,
       relationship: r.submission.relationship || null,
-      tfn: r.submission.tfn || null,
-      onboardingStatus: 'uncommitted',
+      securityClearance: r.submission.securityClearance || null,
+      onboardingStatus: 'committed',
       terminationDate: r.submission.terminationDate || null,
     }));
 }
@@ -573,23 +585,32 @@ export async function submitCandidateForm(id, formData) {
     const req = await getRequest(id);
     if (!req) return null;
     // 1) Write to Source of Truth.
-    //    - `onboarding_status: 'uncommitted'` is the initial lifecycle state
-    //      for any submission. HR may transition it later (e.g., 'committed').
-    //    - We deliberately DO NOT collect or store bank account details
-    //      anywhere in the application.
+    //    - `onboarding_status: 'committed'` — per Jerry's spec, the candidate
+    //      successfully completing the form transitions them straight to
+    //      'committed' (no separate HR review step). The column still
+    //      defaults to 'uncommitted' at the DB level for safety in case a
+    //      row is ever inserted by another path.
+    //    - We deliberately DO NOT collect or store: bank account details,
+    //      or tax file number (TFN). The TFN column has been dropped.
+    //    - Position number / Branch / Group come from the originating
+    //      onboarding_request (HR-supplied), copied through here as the
+    //      identity_record is the source of truth post-submission.
     const row = {
       request_id: id,
       reference,
       submitted_at: submittedAt,
-      onboarding_status: 'uncommitted',
+      onboarding_status: 'committed',
       given_name: formData.givenName,
       family_name: formData.familyName,
       preferred_name: formData.preferredName || null,
       dob: formData.dob || null,
       email: req.email,
       position: formData.position,
+      position_number: formData.positionNumber || req.positionNumber || null,
       level: formData.level,
       division: formData.division,
+      branch: formData.branch || req.branch || null,
+      group_name: formData.groupName || req.groupName || null,
       commencement: formData.commencement || null,
       manager_name: formData.managerName,
       location: formData.location,
@@ -597,7 +618,7 @@ export async function submitCandidateForm(id, formData) {
       emergency_name: formData.emergencyName,
       emergency_phone: formData.emergencyPhone,
       relationship: formData.relationship || null,
-      tfn: formData.tfn,
+      security_clearance: formData.securityClearance || null,
     };
     const { error: insertErr } = await supabase
       .from('identity_records')

@@ -15,6 +15,16 @@ import { hasSupabase, supabase } from '../../lib/supabase';
 
 const RELATIONSHIPS = ['Spouse / Partner', 'Parent', 'Sibling', 'Friend', 'Other'];
 
+// AGSVA security clearance levels in ascending order of vetting intensity.
+// "None" covers candidates who have never held a clearance.
+const CLEARANCE_LEVELS = [
+  'None',
+  'Baseline',
+  'Negative Vetting 1 (NV1)',
+  'Negative Vetting 2 (NV2)',
+  'Positive Vetting (PV)',
+];
+
 /**
  * Outer component: resolves the active onboarding request (async), then
  * mounts <FormView> with the resolved req. Keeping the hydration in a
@@ -111,8 +121,11 @@ function FormView({ req, isPreview }) {
     preferredName: '',
     dob: '',
     position: req.position || '',
+    positionNumber: req.positionNumber || '',
     level: req.level || '',
     division: req.division || '',
+    branch: req.branch || '',
+    groupName: req.groupName || '',
     commencement: req.commencement || '',
     managerName: req.managerName || '',
     location: req.location || '',
@@ -120,7 +133,7 @@ function FormView({ req, isPreview }) {
     emergencyName: '',
     emergencyPhone: '',
     relationship: '',
-    tfn: '',
+    securityClearance: '',
   }));
 
   const [errors, setErrors] = useState({});
@@ -142,9 +155,7 @@ function FormView({ req, isPreview }) {
     if (!form.emergencyPhone.trim()) e.emergencyPhone = 'Required';
     else if (!/^(\+?\d[\d\s-]{6,})$/.test(form.emergencyPhone))
       e.emergencyPhone = 'Enter a valid phone number';
-    if (!form.tfn.trim()) e.tfn = 'Required';
-    else if (!/^\d{3}\s?\d{3}\s?\d{3}$/.test(form.tfn.replace(/\s/g, '').replace(/(.{3})/g, '$1 ').trim()))
-      e.tfn = 'TFN must be 9 digits';
+    if (!form.securityClearance) e.securityClearance = 'Required';
     return e;
   };
 
@@ -155,7 +166,7 @@ function FormView({ req, isPreview }) {
     setErrors(es);
     setTouched(
       [
-        'dob','mobile','emergencyName','emergencyPhone','tfn',
+        'dob','mobile','emergencyName','emergencyPhone','securityClearance',
       ].reduce((acc, k) => ({ ...acc, [k]: true }), {})
     );
     if (Object.keys(es).length > 0) {
@@ -245,18 +256,29 @@ function FormView({ req, isPreview }) {
               <Field label="Position Title" prefilled>
                 <TextInput prefilled value={form.position} readOnly />
               </Field>
-              <Field label="Employment Level" prefilled>
-                <TextInput prefilled value={form.level} readOnly />
+              <Field label="Position Number / ID" prefilled>
+                <TextInput prefilled value={form.positionNumber} readOnly />
               </Field>
             </div>
             <div className="gov-field-row">
-              <Field label="Division / Business Unit" prefilled>
-                <TextInput prefilled value={form.division} readOnly />
+              <Field label="Employment Level" prefilled>
+                <TextInput prefilled value={form.level} readOnly />
               </Field>
               <Field label="Commencement Date" prefilled>
                 <TextInput type="date" prefilled value={form.commencement} readOnly />
               </Field>
             </div>
+            <div className="gov-field-row">
+              <Field label="Group" prefilled>
+                <TextInput prefilled value={form.groupName} readOnly />
+              </Field>
+              <Field label="Division" prefilled>
+                <TextInput prefilled value={form.division} readOnly />
+              </Field>
+            </div>
+            <Field label="Branch" prefilled>
+              <TextInput prefilled value={form.branch} readOnly />
+            </Field>
 
             <SectionSep>Manager & Location</SectionSep>
 
@@ -313,18 +335,22 @@ function FormView({ req, isPreview }) {
               </Field>
             </div>
             <Field
-              label="Tax File Number (TFN)"
+              label="Security Clearance"
               required
-              hint="Your TFN is protected under the Privacy Act 1988 and will only be used for payroll purposes."
-              error={errVisible('tfn') ? errors.tfn : null}
+              hint="Select your current AGSVA security clearance level. Choose 'None' if you have never held a clearance."
+              error={errVisible('securityClearance') ? errors.securityClearance : null}
             >
-              <TextInput
-                placeholder="XXX XXX XXX"
-                value={form.tfn}
-                onChange={set('tfn')}
-                onBlur={onBlur('tfn')}
-                error={errVisible('tfn')}
-              />
+              <SelectInput
+                value={form.securityClearance}
+                onChange={set('securityClearance')}
+                onBlur={onBlur('securityClearance')}
+                error={errVisible('securityClearance')}
+              >
+                <option value="">— Select —</option>
+                {CLEARANCE_LEVELS.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </SelectInput>
             </Field>
           </Card>
 

@@ -46,8 +46,11 @@ const EMPTY = {
   familyName: '',
   email: '',
   position: '',
+  positionNumber: '',
   level: 'APS 6',
   division: '',
+  branch: '',
+  groupName: '',
   commencement: '',
   managerName: '',
   managerEmail: '',
@@ -78,7 +81,10 @@ export default function NewRequest() {
       e.email =
         'Please use a personal email address (e.g. Gmail, Outlook, iCloud, Yahoo). The candidate won\u2019t have a work email until after onboarding.';
     if (!form.position.trim()) e.position = 'Required';
+    if (!form.positionNumber.trim()) e.positionNumber = 'Required';
     if (!form.division.trim()) e.division = 'Required';
+    if (!form.branch.trim()) e.branch = 'Required';
+    if (!form.groupName.trim()) e.groupName = 'Required';
     if (!form.commencement) e.commencement = 'Required';
     if (!form.managerName.trim()) e.managerName = 'Required';
     if (!form.managerEmail.trim()) e.managerEmail = 'Required';
@@ -198,23 +204,23 @@ export default function NewRequest() {
                   error={errVisible('position')}
                 />
               </Field>
+              <Field label="Position Number / ID" required error={errVisible('positionNumber') ? errors.positionNumber : null}>
+                <TextInput
+                  placeholder="e.g. POS-12345"
+                  value={form.positionNumber}
+                  onChange={set('positionNumber')}
+                  onBlur={onBlur('positionNumber')}
+                  error={errVisible('positionNumber')}
+                />
+              </Field>
+            </div>
+            <div className="gov-field-row">
               <Field label="Employment Level">
                 <SelectInput value={form.level} onChange={set('level')}>
                   {LEVELS.map((l) => (
                     <option key={l}>{l}</option>
                   ))}
                 </SelectInput>
-              </Field>
-            </div>
-            <div className="gov-field-row">
-              <Field label="Division / Business Unit" required error={errVisible('division') ? errors.division : null}>
-                <TextInput
-                  placeholder="e.g. Digital Transformation"
-                  value={form.division}
-                  onChange={set('division')}
-                  onBlur={onBlur('division')}
-                  error={errVisible('division')}
-                />
               </Field>
               <Field label="Commencement Date" required error={errVisible('commencement') ? errors.commencement : null}>
                 <TextInput
@@ -226,6 +232,35 @@ export default function NewRequest() {
                 />
               </Field>
             </div>
+            <div className="gov-field-row">
+              <Field label="Group" required error={errVisible('groupName') ? errors.groupName : null}>
+                <TextInput
+                  placeholder="e.g. Corporate Services"
+                  value={form.groupName}
+                  onChange={set('groupName')}
+                  onBlur={onBlur('groupName')}
+                  error={errVisible('groupName')}
+                />
+              </Field>
+              <Field label="Division" required error={errVisible('division') ? errors.division : null}>
+                <TextInput
+                  placeholder="e.g. Digital Transformation"
+                  value={form.division}
+                  onChange={set('division')}
+                  onBlur={onBlur('division')}
+                  error={errVisible('division')}
+                />
+              </Field>
+            </div>
+            <Field label="Branch" required error={errVisible('branch') ? errors.branch : null}>
+              <TextInput
+                placeholder="e.g. Service Delivery"
+                value={form.branch}
+                onChange={set('branch')}
+                onBlur={onBlur('branch')}
+                error={errVisible('branch')}
+              />
+            </Field>
           </Card>
 
           <Card
