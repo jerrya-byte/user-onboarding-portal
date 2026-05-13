@@ -9,31 +9,63 @@ import OnboardingForm from './pages/candidate/OnboardingForm';
 import Confirmation from './pages/candidate/Confirmation';
 import ManagerDashboard from './pages/manager/Dashboard';
 import ReviewSubmission from './pages/manager/ReviewSubmission';
+import SelfService from './pages/me/SelfService';
 import ProtectedRoute from './components/ProtectedRoute';
+import { ROLES, useUserRole } from './lib/roles';
 
-// Wrap any internal-staff route (HR or Manager) in <ProtectedRoute>
-// so that an authenticated Microsoft session is required to view it.
-// Candidate routes stay public — the candidate is gated by their
-// magic link.
-const staff = (el) => <ProtectedRoute>{el}</ProtectedRoute>;
+const HR_ONLY = [ROLES.HR_ADMIN];
+const HR_OR_MANAGER = [ROLES.HR_ADMIN, ROLES.MANAGER];
+const ANY_STAFF = [ROLES.HR_ADMIN, ROLES.MANAGER, ROLES.END_USER];
+
+// Resolve "/" to the role-appropriate landing page. Wrapped in
+// ProtectedRoute so the user is signed in before we read their role.
+function HomeRedirect() {
+  const { homePath } = useUserRole();
+  return <Navigate to={homePath} replace />;
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/hr/dashboard" replace />} />
-        <Route path="/hr/new" element={staff(<NewRequest />)} />
-        <Route path="/hr/dashboard" element={staff(<Dashboard />)} />
-        <Route path="/hr/identities" element={staff(<Identities />)} />
-        <Route path="/hr/termination" element={staff(<Termination />)} />
-        <Route path="/hr/reissue" element={staff(<ReissueLink />)} />
-        <Route path="/hr/reissue/:id" element={staff(<ReissueLink />)} />
-        <Route path="/manager/dashboard" element={staff(<ManagerDashboard />)} />
-        <Route path="/manager/review/:id" element={staff(<ReviewSubmission />)} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <HomeRedirect />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* HR Admin */}
+        <Route path="/hr/new" element={<ProtectedRoute requiredRoles={HR_ONLY}><NewRequest /></ProtectedRoute>} />
+        <Route path="/hr/dashboard" element={<ProtectedRoute requiredRoles={HR_ONLY}><Dashboard /></ProtectedRoute>} />
+        <Route path="/hr/identities" element={<ProtectedRoute requiredRoles={HR_ONLY}><Identities /></ProtectedRoute>} />
+        <Route path="/hr/termination" element={<ProtectedRoute requiredRoles={HR_ONLY}><Termination /></ProtectedRoute>} />
+        <Route path="/hr/reissue" element={<ProtectedRoute requiredRoles={HR_ONLY}><ReissueLink /></ProtectedRoute>} />
+        <Route path="/hr/reissue/:id" element={<ProtectedRoute requiredRoles={HR_ONLY}><ReissueLink /></ProtectedRoute>} />
+
+        {/* Manager (or HR Admin) */}
+        <Route path="/manager/dashboard" element={<ProtectedRoute requiredRoles={HR_OR_MANAGER}><ManagerDashboard /></ProtectedRoute>} />
+        <Route path="/manager/review/:id" element={<ProtectedRoute requiredRoles={HR_OR_MANAGER}><ReviewSubmission /></ProtectedRoute>} />
+
+        {/* Any authenticated staff member with a role */}
+        <Route path="/me" element={<ProtectedRoute requiredRoles={ANY_STAFF}><SelfService /></ProtectedRoute>} />
+
+        {/* Candidate (public, gated by magic link) */}
         <Route path="/candidate/auth" element={<AuthLanding />} />
         <Route path="/candidate/form" element={<OnboardingForm />} />
         <Route path="/candidate/done" element={<Confirmation />} />
-        <Route path="*" element={<Navigate to="/hr/dashboard" replace />} />
+
+        {/* Anything else → role-appropriate home */}
+        <Route
+          path="*"
+          element={
+            <ProtectedRoute>
+              <HomeRedirect />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );

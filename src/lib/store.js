@@ -294,6 +294,102 @@ export async function setTerminationDate(id, date) {
   return null;
 }
 
+// ─────────────────────────────────────────────────────────────
+// End User self-service — fetch and update the signed-in user's
+// own identity_records row by email. Only a small allow-list of
+// fields is writable; everything else is intentionally read-only.
+// ─────────────────────────────────────────────────────────────
+
+const SELF_SERVICE_ALLOWED_FIELDS = new Set([
+  'family_name',
+  'mobile',
+  'emergency_name',
+  'emergency_phone',
+  'relationship',
+]);
+
+export async function getMyIdentityRecord(email) {
+  if (!email) return null;
+  if (hasSupabase) {
+    const { data, error } = await supabase
+      .from('identity_records')
+      .select('*')
+      .ilike('email', email)
+      .order('submitted_at', { ascending: false })
+      .limit(1);
+    if (error) {
+      console.error('[store] getMyIdentityRecord failed:', error);
+      return null;
+    }
+    return data?.length ? fromIdentityRecord(data[0]) : null;
+  }
+  // Mock-mode: derive from completed requests.
+  const records = await listIdentityRecords();
+  return records.find((r) => r.email?.toLowerCase() === email.toLowerCase()) || null;
+}
+
+export async function updateMyIdentityRecord(id, patch) {
+  if (!id) throw new Error('Identity record id is required');
+  // Only allow a strict subset of fields — defence in depth in case the
+  // UI ever calls this with extra props.
+  const safePatch = {};
+  const camelToSnake = {
+    familyName: 'family_name',
+    mobile: 'mobile',
+    emergencyName: 'emergency_name',
+    emergencyPhone: 'emergency_phone',
+    relationship: 'relationship',
+  };
+  for (const [k, v] of Object.entries(patch || {})) {
+    const snake = camelToSnake[k] || k;
+    if (SELF_SERVICE_ALLOWED_FIELDS.has(snake)) {
+      safePatch[snake] = v;
+    }
+  }
+  if (Object.keys(safePatch).length === 0) {
+    throw new Error('No allowed fields to update.');
+  }
+
+  if (hasSupabase) {
+    const { data, error } = await supabase
+      .from('identity_records')
+      .update(safePatch)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) {
+      console.error('[store] updateMyIdentityRecord failed:', error);
+      throw new Error(`Could not save: ${error.message}`);
+    }
+    return fromIdentityRecord(data);
+  }
+
+  // Mock-mode: write into the request's submission blob.
+  const all = read(KEY_REQUESTS, []);
+  const idx = all.findIndex((r) => r.id === id || r.submission?.id === id);
+  if (idx < 0) throw new Error('Identity record not found.');
+  const snakeToCamel = {
+    family_name: 'familyName',
+    mobile: 'mobile',
+    emergency_name: 'emergencyName',
+    emergency_phone: 'emergencyPhone',
+    relationship: 'relationship',
+  };
+  const camelPatch = {};
+  for (const [k, v] of Object.entries(safePatch)) {
+    camelPatch[snakeToCamel[k] || k] = v;
+  }
+  all[idx] = {
+    ...all[idx],
+    submission: { ...all[idx].submission, ...camelPatch },
+    // Surface family_name back onto the top-level request too, so the
+    // mock-mode listIdentityRecords sees the change consistently.
+    ...(camelPatch.familyName ? { familyName: camelPatch.familyName } : {}),
+  };
+  write(KEY_REQUESTS, all);
+  return all[idx];
+}
+
 export async function listIdentityRecords() {
   if (hasSupabase) {
     const { data, error } = await supabase
@@ -990,8 +1086,10 @@ export async function refreshStatuses() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Notifications — ephemeral, localStorage only
-// ─────────────────────────────────────────────────────────────
+
+// Notifications -- ephemeral, localStorage only
+// (HR UI notifications don't need to sync across devices.)
+// -----------------------------------------------------------------
 
 export function listNotifications() {
   return read(KEY_NOTIFS, []);
@@ -1013,9 +1111,9 @@ export function markAllNotificationsRead() {
   write(KEY_NOTIFS, all);
 }
 
-// ─────────────────────────────────────────────────────────────
-// Seed — mock-mode only.
-// ─────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------
+// Seed -- mock-mode only.
+// -----------------------------------------------------------------
 
 export async function seedIfEmpty() {
   if (hasSupabase) return;
