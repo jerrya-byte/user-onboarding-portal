@@ -7,24 +7,29 @@ import ReissueLink from './pages/hr/ReissueLink';
 import AuthLanding from './pages/candidate/AuthLanding';
 import OnboardingForm from './pages/candidate/OnboardingForm';
 import Confirmation from './pages/candidate/Confirmation';
+import ManagerDashboard from './pages/manager/Dashboard';
+import ReviewSubmission from './pages/manager/ReviewSubmission';
 import ProtectedRoute from './components/ProtectedRoute';
 
-// Wrap any HR-side route element in <ProtectedRoute> so that an
-// authenticated Microsoft session is required to view it. Candidate
-// routes stay public — the candidate is gated by their magic link.
-const hr = (el) => <ProtectedRoute>{el}</ProtectedRoute>;
+// Wrap any internal-staff route (HR or Manager) in <ProtectedRoute>
+// so that an authenticated Microsoft session is required to view it.
+// Candidate routes stay public — the candidate is gated by their
+// magic link.
+const staff = (el) => <ProtectedRoute>{el}</ProtectedRoute>;
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Navigate to="/hr/dashboard" replace />} />
-        <Route path="/hr/new" element={hr(<NewRequest />)} />
-        <Route path="/hr/dashboard" element={hr(<Dashboard />)} />
-        <Route path="/hr/identities" element={hr(<Identities />)} />
-        <Route path="/hr/termination" element={hr(<Termination />)} />
-        <Route path="/hr/reissue" element={hr(<ReissueLink />)} />
-        <Route path="/hr/reissue/:id" element={hr(<ReissueLink />)} />
+        <Route path="/hr/new" element={staff(<NewRequest />)} />
+        <Route path="/hr/dashboard" element={staff(<Dashboard />)} />
+        <Route path="/hr/identities" element={staff(<Identities />)} />
+        <Route path="/hr/termination" element={staff(<Termination />)} />
+        <Route path="/hr/reissue" element={staff(<ReissueLink />)} />
+        <Route path="/hr/reissue/:id" element={staff(<ReissueLink />)} />
+        <Route path="/manager/dashboard" element={staff(<ManagerDashboard />)} />
+        <Route path="/manager/review/:id" element={staff(<ReviewSubmission />)} />
         <Route path="/candidate/auth" element={<AuthLanding />} />
         <Route path="/candidate/form" element={<OnboardingForm />} />
         <Route path="/candidate/done" element={<Confirmation />} />

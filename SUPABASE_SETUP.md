@@ -4,11 +4,27 @@ This guide walks you through setting up Supabase so the app can send real magic-
 
 You will end up with:
 
-- Two database tables: `onboarding_requests` (HR-created records) and `identity_records` (the Source of Truth that the candidate's form populates).
+- Four database tables:
+  - `onboarding_requests` — HR-created records
+  - `form_submissions` — the candidate's paged onboarding form (Personal, Security Clearance, Building Pass, Conflict of Interest). Stores drafts and the pre-approval state.
+  - `approvals` — audit log of manager actions (approved, rejected, changes_requested, edited)
+  - `identity_records` — the Source of Truth, written only after the manager approves the submission.
 - Magic-link email authentication configured to send candidates a real email from Supabase.
 - Two secret values (Project URL + anon key) that you paste into the app so it can talk to Supabase.
 
+### Flow (post-approval-feature)
+
+1. HR creates a request → `onboarding_requests` row (`status='link_sent'`).
+2. Candidate clicks the magic link → walks through the stepper. Each Save & Continue upserts to `form_submissions` (`status='draft'`).
+3. Candidate hits Submit → `form_submissions.status='submitted'`, `onboarding_requests.status='pending_approval'`. **No identity record yet.**
+4. Manager opens `/manager/dashboard`, reviews, optionally edits any field, then clicks Approve.
+5. On approve → row inserted into `identity_records`, `form_submissions.status='approved'`, `onboarding_requests.status='completed'`, audit row in `approvals`.
+
+Manager may also: send the form back to the candidate (`requestChanges`) or reject outright (`rejectSubmission`).
+
 Estimated time: **10–15 minutes.**
+
+> **Already on an older version?** The new tables (`form_submissions`, `approvals`) and status values (`pending_approval`, `rejected`) were added in migration `add_form_submissions_and_approvals`. If you're upgrading, see the **Upgrade migration** section at the end of this file.
 
 ---
 
@@ -246,3 +262,69 @@ If the magic-link email doesn't arrive, check spam. If the app still behaves lik
 - **Magic link says "invalid or expired":** Supabase magic links expire after 1 hour. Click **Reissue** in the HR dashboard to send a new one.
 - **Error on "Generate & Send Magic Link":** open the browser console (right-click → Inspect → Console). Look for red errors. The most common cause is a typo in `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY`.
 - **Redirect goes to the wrong URL:** re-check Step 3a — your Vercel URL needs to be in Redirect URLs.
+
+---
+
+## Upgrade migration — adding `form_submissions` + `approvals`
+
+If your Supabase project predates the paged-form + manager-approval feature, run this once in **SQL Editor** to add the new tables. It is idempotent (safe to re-run):
+
+```sql
+create table if not exists public.form_submissions (
+  id              uuid primary key default gen_random_uuid(),
+  request_id      uuid not null unique
+                    references public.onboarding_requests(id) on delete cascade,
+  status          text not null default 'draft'
+                    check (status in ('draft','submitted','changes_requested','approved','rejected')),
+  current_section text default 'personal',
+  personal             jsonb not null default '{}'::jsonb,
+  security_clearance   jsonb not null default '{}'::jsonb,
+  building_pass        jsonb not null default '{}'::jsonb,
+  conflict_of_interest jsonb not null default '{}'::jsonb,
+  submitted_at    timestamptz,
+  approved_at     timestamptz,
+  rejected_at     timestamptz,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create index if not exists form_submissions_status_idx on public.form_submissions(status);
+create index if not exists form_submissions_request_idx on public.form_submissions(request_id);
+
+create or replace function public.set_updated_at()
+returns trigger language plpgsql as $$
+begin new.updated_at := now(); return new; end;
+$$;
+
+drop trigger if exists trg_form_submissions_updated_at on public.form_submissions;
+create trigger trg_form_submissions_updated_at
+  before update on public.form_submissions
+  for each row execute function public.set_updated_at();
+
+create table if not exists public.approvals (
+  id              uuid primary key default gen_random_uuid(),
+  submission_id   uuid not null references public.form_submissions(id) on delete cascade,
+  request_id      uuid not null references public.onboarding_requests(id) on delete cascade,
+  manager_email   text not null,
+  manager_name    text,
+  action          text not null
+                    check (action in ('approved','rejected','changes_requested','edited')),
+  comments        text,
+  field_changes   jsonb not null default '[]'::jsonb,
+  created_at      timestamptz not null default now()
+);
+
+create index if not exists approvals_submission_idx on public.approvals(submission_id);
+create index if not exists approvals_manager_idx on public.approvals(manager_email);
+
+alter table public.form_submissions enable row level security;
+alter table public.approvals        enable row level security;
+
+drop policy if exists "anon all" on public.form_submissions;
+create policy "anon all" on public.form_submissions for all using (true) with check (true);
+
+drop policy if exists "anon all" on public.approvals;
+create policy "anon all" on public.approvals for all using (true) with check (true);
+```
+
+After running, refresh the app — the Manager portal at `/manager/dashboard` will start showing pending approvals once a candidate submits a form.

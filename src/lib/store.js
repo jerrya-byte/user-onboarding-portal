@@ -108,10 +108,6 @@ function fromSupabase(row) {
     linkSentAt: row.link_sent_at,
     expiresAt: row.expires_at,
     inviteCode: row.invite_code,
-    // Magic token is only meaningful in mock mode — in Supabase mode
-    // the real auth token is in the email. We leave a preview token
-    // so the "Preview Link" button in the dashboard still works (it
-    // just dumps the candidate straight to the auth landing page).
     magicToken: row.magic_token || buildMagicLinkToken(
       row.id,
       row.email,
@@ -193,9 +189,6 @@ export async function getRequest(id) {
   return read(KEY_REQUESTS, []).find((r) => r.id === id) || null;
 }
 
-// Look up a request by candidate email — used when the candidate clicks
-// the magic link and we don't know the request_id in the URL (Supabase
-// mode preserves query params, so we usually do, but this is a safety net).
 export async function getRequestByEmail(email) {
   if (!email) return null;
   if (hasSupabase) {
@@ -221,10 +214,6 @@ export async function getRequestByEmail(email) {
 
 function fromIdentityRecord(row) {
   if (!row) return null;
-  // Per Jerry's spec, `id` and `request_id` are not displayed in any HR
-  // table. We do keep them on the returned object so action handlers
-  // (reissue, set termination date) can resolve back to the underlying
-  // record/request — the UI just doesn't render them as columns.
   return {
     id: row.id,
     requestId: row.request_id || null,
@@ -255,14 +244,6 @@ function fromIdentityRecord(row) {
   };
 }
 
-/**
- * Update the termination_date on an identity_records row.
- * The UI is responsible for validating that `date` is a future date —
- * we still re-validate here so the rule isn't trusted only client-side.
- *
- * @param {string} id   identity_records.id (uuid)
- * @param {string|null} date  ISO date string (YYYY-MM-DD), or null to clear
- */
 export async function setTerminationDate(id, date) {
   if (!id) throw new Error('Identity record id is required');
 
@@ -271,9 +252,6 @@ export async function setTerminationDate(id, date) {
     if (Number.isNaN(parsed.getTime())) {
       throw new Error('Termination date is invalid.');
     }
-    // Compare at day-level. We treat "today" as not-future so HR can't
-    // accidentally terminate someone effective immediately by clicking
-    // through the picker.
     const startOfTomorrow = new Date();
     startOfTomorrow.setHours(0, 0, 0, 0);
     startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
@@ -296,13 +274,9 @@ export async function setTerminationDate(id, date) {
     return fromIdentityRecord(data);
   }
 
-  // Mock-mode: identity records are derived from requests in localStorage,
-  // so persist the termination_date on the matching request.submission.
   const all = read(KEY_REQUESTS, []);
   const idx = all.findIndex((r) => r.submission && r.id === id);
   if (idx < 0) {
-    // The mock identities use the request_id as their id (because we
-    // synthesise them in listIdentityRecords above), so try that too.
     const altIdx = all.findIndex((r) => r.id === id);
     if (altIdx < 0) throw new Error('Identity record not found.');
     all[altIdx] = {
@@ -320,10 +294,6 @@ export async function setTerminationDate(id, date) {
   return null;
 }
 
-/**
- * List all identity records (completed onboarding submissions).
- * In mock mode, derive them from the in-memory requests with submissions.
- */
 export async function listIdentityRecords() {
   if (hasSupabase) {
     const { data, error } = await supabase
@@ -337,14 +307,10 @@ export async function listIdentityRecords() {
     return (data || []).map(fromIdentityRecord);
   }
 
-  // Mock-mode: derive from completed requests' submission blob.
   const all = read(KEY_REQUESTS, []);
   return all
     .filter((r) => r.submission)
     .map((r) => ({
-      // In mock mode the identity record doesn't have its own uuid, so
-      // we surface the request id as both `id` and `requestId`. The
-      // Termination page only needs *something* unique to update.
       id: r.id,
       requestId: r.id,
       reference: r.submission.reference,
@@ -374,12 +340,6 @@ export async function listIdentityRecords() {
     }));
 }
 
-/**
- * Create a new onboarding request. In Supabase mode this also triggers
- * a real magic-link email to the candidate via Supabase Auth.
- *
- * @returns {Promise<{request: object, magicLinkEmailSent: boolean, emailError: string|null}>}
- */
 export async function createRequest(input, { validityHours = 72 } = {}) {
   const expiresAtMs = Date.now() + validityHours * 60 * 60 * 1000;
   const inviteCode = generateInviteCode();
@@ -403,8 +363,6 @@ export async function createRequest(input, { validityHours = 72 } = {}) {
       throw new Error(`Could not save request: ${error.message}`);
     }
     const request = fromSupabase(data);
-
-    // Send the real magic-link email via Supabase Auth.
     const emailResult = await sendMagicLink(request);
     return {
       request,
@@ -413,7 +371,6 @@ export async function createRequest(input, { validityHours = 72 } = {}) {
     };
   }
 
-  // --- localStorage fallback ---
   const id = uuid();
   const request = {
     id,
@@ -439,18 +396,6 @@ export async function createRequest(input, { validityHours = 72 } = {}) {
   return { request, magicLinkEmailSent: false, emailError: null };
 }
 
-/**
- * Send (or re-send) a magic-link email for a request.
- *
- * Delivery is handled by the `send-magic-link` Edge Function, which:
- *   1. Calls supabase.auth.admin.generateLink({ type: 'magiclink' }) to
- *      MINT a Supabase Auth magic link without sending an email.
- *   2. Sends that link via Resend (no daily cap like Supabase's built-in SMTP).
- *
- * The candidate-side flow is unchanged: they click the link, Supabase
- * verifies the token, then redirects them to /candidate/auth where the
- * client picks up the session and forwards them to the onboarding form.
- */
 async function sendMagicLink(request) {
   if (!hasSupabase) return { ok: false, error: 'Supabase not configured' };
   const redirectTo = `${window.location.origin}/candidate/auth?request_id=${request.id}`;
@@ -474,12 +419,6 @@ async function sendMagicLink(request) {
   return { ok: true, error: null };
 }
 
-/**
- * Invoke the `send-confirmation-email` Supabase Edge Function. The function
- * uses Resend to deliver a "Onboarding submitted — your reference ID" email
- * to the candidate. RESEND_API_KEY is held server-side as a function secret;
- * the client never sees it.
- */
 async function sendConfirmationEmail({ email, reference, givenName, familyName }) {
   if (!hasSupabase) return { ok: false, error: 'Supabase not configured' };
   const { data, error } = await supabase.functions.invoke('send-confirmation-email', {
@@ -495,7 +434,6 @@ async function sendConfirmationEmail({ email, reference, givenName, familyName }
 export async function updateRequest(id, patch) {
   if (hasSupabase) {
     const row = {};
-    // Map camelCase → snake_case for the few fields we update.
     if ('status' in patch) row.status = patch.status;
     if ('email' in patch) row.email = patch.email;
     if ('inviteCode' in patch) row.invite_code = patch.inviteCode;
@@ -570,102 +508,452 @@ export async function reissueRequest(
   return updated;
 }
 
-/**
- * Candidate submits the onboarding form. In Supabase mode this:
- *   1. Inserts a full row into `identity_records` (Source of Truth)
- *   2. Marks the matching `onboarding_requests` row as completed
- *
- * In mock mode it stores the submission blob on the request in-place.
- */
-export async function submitCandidateForm(id, formData) {
-  const reference = generateReference();
+// ─────────────────────────────────────────────────────────────
+// Paged candidate form — drafts, submission, and manager approval.
+// ─────────────────────────────────────────────────────────────
+//
+// Flow:
+//   1. Candidate moves through stepper sections (personal, security
+//      clearance, building pass, conflict of interest). Each Next/
+//      Back call hits saveDraft() to persist progress.
+//   2. On final submit, submitForApproval() flips form_submissions
+//      .status='submitted' and onboarding_requests.status='pending_approval'.
+//      Identity record is NOT yet written.
+//   3. The manager opens /manager/dashboard, sees pending approvals
+//      filtered by their email, optionally edits, then clicks Approve.
+//   4. approveSubmission() inserts into identity_records, flips
+//      statuses, and logs an approvals row for audit.
+
+const SECTIONS = ['personal', 'security_clearance', 'building_pass', 'conflict_of_interest'];
+
+function fromFormSubmission(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    requestId: row.request_id,
+    status: row.status,
+    currentSection: row.current_section,
+    personal: row.personal || {},
+    securityClearance: row.security_clearance || {},
+    buildingPass: row.building_pass || {},
+    conflictOfInterest: row.conflict_of_interest || {},
+    submittedAt: row.submitted_at,
+    approvedAt: row.approved_at,
+    rejectedAt: row.rejected_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getFormSubmission(requestId) {
+  if (!requestId) return null;
+  if (hasSupabase) {
+    const { data, error } = await supabase
+      .from('form_submissions')
+      .select('*')
+      .eq('request_id', requestId)
+      .maybeSingle();
+    if (error) {
+      console.error('[store] getFormSubmission failed:', error);
+      return null;
+    }
+    return fromFormSubmission(data);
+  }
+  const all = read(KEY_REQUESTS, []);
+  const req = all.find((r) => r.id === requestId);
+  return req?.draftSubmission || null;
+}
+
+export async function saveDraft(requestId, { sections = {}, currentSection } = {}) {
+  if (!requestId) throw new Error('requestId is required');
+
+  if (hasSupabase) {
+    const prior = await getFormSubmission(requestId);
+    const patch = {
+      request_id: requestId,
+      status: prior?.status === 'changes_requested' ? 'changes_requested' : 'draft',
+    };
+    if (currentSection) patch.current_section = currentSection;
+    if ('personal' in sections) patch.personal = sections.personal;
+    if ('securityClearance' in sections) patch.security_clearance = sections.securityClearance;
+    if ('buildingPass' in sections) patch.building_pass = sections.buildingPass;
+    if ('conflictOfInterest' in sections) patch.conflict_of_interest = sections.conflictOfInterest;
+
+    const { data, error } = await supabase
+      .from('form_submissions')
+      .upsert(patch, { onConflict: 'request_id' })
+      .select()
+      .single();
+    if (error) {
+      console.error('[store] saveDraft failed:', error);
+      throw new Error(`Could not save draft: ${error.message}`);
+    }
+    return fromFormSubmission(data);
+  }
+
+  const all = read(KEY_REQUESTS, []);
+  const idx = all.findIndex((r) => r.id === requestId);
+  if (idx < 0) throw new Error('Request not found');
+  const prev = all[idx].draftSubmission || {
+    id: uuid(), requestId, status: 'draft', currentSection: 'personal',
+    personal: {}, securityClearance: {}, buildingPass: {}, conflictOfInterest: {},
+    createdAt: now(),
+  };
+  const updated = {
+    ...prev,
+    ...sections,
+    currentSection: currentSection || prev.currentSection,
+    updatedAt: now(),
+  };
+  all[idx] = { ...all[idx], draftSubmission: updated };
+  write(KEY_REQUESTS, all);
+  return updated;
+}
+
+export async function submitForApproval(requestId, sections = {}) {
+  if (!requestId) throw new Error('requestId is required');
   const submittedAt = now();
 
   if (hasSupabase) {
-    const req = await getRequest(id);
-    if (!req) return null;
-    // 1) Write to Source of Truth.
-    //    - `onboarding_status: 'committed'` — per Jerry's spec, the candidate
-    //      successfully completing the form transitions them straight to
-    //      'committed' (no separate HR review step). The column still
-    //      defaults to 'uncommitted' at the DB level for safety in case a
-    //      row is ever inserted by another path.
-    //    - We deliberately DO NOT collect or store: bank account details,
-    //      or tax file number (TFN). The TFN column has been dropped.
-    //    - Position number / Branch / Group come from the originating
-    //      onboarding_request (HR-supplied), copied through here as the
-    //      identity_record is the source of truth post-submission.
-    const row = {
-      request_id: id,
-      reference,
+    const patch = {
+      request_id: requestId,
+      status: 'submitted',
       submitted_at: submittedAt,
+      current_section: 'review',
+    };
+    if (sections.personal) patch.personal = sections.personal;
+    if (sections.securityClearance) patch.security_clearance = sections.securityClearance;
+    if (sections.buildingPass) patch.building_pass = sections.buildingPass;
+    if (sections.conflictOfInterest) patch.conflict_of_interest = sections.conflictOfInterest;
+
+    const { data: submission, error: subErr } = await supabase
+      .from('form_submissions')
+      .upsert(patch, { onConflict: 'request_id' })
+      .select()
+      .single();
+    if (subErr) {
+      console.error('[store] submitForApproval upsert failed:', subErr);
+      throw new Error(`Could not submit form: ${subErr.message}`);
+    }
+
+    await updateRequest(requestId, { status: 'pending_approval' });
+    return fromFormSubmission(submission);
+  }
+
+  const all = read(KEY_REQUESTS, []);
+  const idx = all.findIndex((r) => r.id === requestId);
+  if (idx < 0) throw new Error('Request not found');
+  const prev = all[idx].draftSubmission || {
+    id: uuid(), requestId, status: 'draft', currentSection: 'review',
+    personal: {}, securityClearance: {}, buildingPass: {}, conflictOfInterest: {},
+    createdAt: now(),
+  };
+  const updated = {
+    ...prev,
+    ...sections,
+    status: 'submitted',
+    submittedAt,
+    currentSection: 'review',
+  };
+  all[idx] = { ...all[idx], status: 'pending_approval', draftSubmission: updated };
+  write(KEY_REQUESTS, all);
+  addNotification({
+    kind: 'pending_approval',
+    title: `Awaiting manager approval — ${all[idx].givenName} ${all[idx].familyName}`,
+    body: 'Candidate submitted the onboarding form. Manager review required.',
+    requestId,
+  });
+  return updated;
+}
+
+export async function listPendingApprovals(managerEmail) {
+  if (hasSupabase) {
+    let query = supabase
+      .from('onboarding_requests')
+      .select('*, form_submissions!inner(*)')
+      .eq('status', 'pending_approval')
+      .order('created_at', { ascending: false });
+    if (managerEmail) {
+      query = query.ilike('manager_email', managerEmail);
+    }
+    const { data, error } = await query;
+    if (error) {
+      console.error('[store] listPendingApprovals failed:', error);
+      return [];
+    }
+    return (data || []).map((row) => ({
+      request: fromSupabase(row),
+      submission: fromFormSubmission(row.form_submissions),
+    }));
+  }
+
+  const all = read(KEY_REQUESTS, []);
+  return all
+    .filter((r) => r.status === 'pending_approval')
+    .filter((r) => !managerEmail || r.managerEmail?.toLowerCase() === managerEmail.toLowerCase())
+    .map((r) => ({ request: r, submission: r.draftSubmission }));
+}
+
+export async function getApprovalDetail(requestId) {
+  const request = await getRequest(requestId);
+  if (!request) return null;
+  const submission = await getFormSubmission(requestId);
+  return { request, submission };
+}
+
+export async function managerEditSection(requestId, section, sectionData) {
+  if (!SECTIONS.includes(section)) throw new Error(`Unknown section: ${section}`);
+  if (hasSupabase) {
+    const col =
+      section === 'personal' ? 'personal'
+        : section === 'security_clearance' ? 'security_clearance'
+        : section === 'building_pass' ? 'building_pass'
+        : 'conflict_of_interest';
+    const { data, error } = await supabase
+      .from('form_submissions')
+      .update({ [col]: sectionData })
+      .eq('request_id', requestId)
+      .select()
+      .single();
+    if (error) {
+      console.error('[store] managerEditSection failed:', error);
+      throw new Error(`Could not save edit: ${error.message}`);
+    }
+    return fromFormSubmission(data);
+  }
+  const all = read(KEY_REQUESTS, []);
+  const idx = all.findIndex((r) => r.id === requestId);
+  if (idx < 0) return null;
+  const sub = all[idx].draftSubmission || {};
+  const camel =
+    section === 'personal' ? 'personal'
+      : section === 'security_clearance' ? 'securityClearance'
+      : section === 'building_pass' ? 'buildingPass'
+      : 'conflictOfInterest';
+  all[idx] = {
+    ...all[idx],
+    draftSubmission: { ...sub, [camel]: sectionData, updatedAt: now() },
+  };
+  write(KEY_REQUESTS, all);
+  return all[idx].draftSubmission;
+}
+
+export async function approveSubmission(requestId, { manager, comments, fieldChanges = [] }) {
+  if (!requestId) throw new Error('requestId is required');
+  if (!manager?.email) throw new Error('Manager email is required');
+
+  const reference = generateReference();
+  const approvedAt = now();
+
+  if (hasSupabase) {
+    const detail = await getApprovalDetail(requestId);
+    if (!detail?.submission) throw new Error('No submission found to approve');
+    const { request, submission } = detail;
+    const p = submission.personal || {};
+
+    const identityRow = {
+      request_id: requestId,
+      reference,
+      submitted_at: submission.submittedAt || approvedAt,
       onboarding_status: 'committed',
-      given_name: formData.givenName,
-      family_name: formData.familyName,
-      preferred_name: formData.preferredName || null,
-      dob: formData.dob || null,
-      email: req.email,
-      position: formData.position,
-      position_number: formData.positionNumber || req.positionNumber || null,
-      level: formData.level,
-      division: formData.division,
-      branch: formData.branch || req.branch || null,
-      group_name: formData.groupName || req.groupName || null,
-      commencement: formData.commencement || null,
-      manager_name: formData.managerName,
-      location: formData.location,
-      mobile: formData.mobile,
-      emergency_name: formData.emergencyName,
-      emergency_phone: formData.emergencyPhone,
-      relationship: formData.relationship || null,
-      security_clearance: formData.securityClearance || null,
+      given_name: request.givenName,
+      family_name: request.familyName,
+      preferred_name: p.preferredName || null,
+      dob: p.dob || null,
+      email: request.email,
+      position: request.position,
+      position_number: request.positionNumber || null,
+      level: request.level,
+      division: request.division,
+      branch: request.branch || null,
+      group_name: request.groupName || null,
+      commencement: request.commencement || null,
+      manager_name: request.managerName,
+      location: request.location,
+      mobile: p.mobile || null,
+      emergency_name: p.emergencyName || null,
+      emergency_phone: p.emergencyPhone || null,
+      relationship: p.relationship || null,
+      security_clearance: submission.securityClearance?.clearanceLevel || null,
     };
     const { error: insertErr } = await supabase
       .from('identity_records')
-      .insert(row);
+      .insert(identityRow);
     if (insertErr) {
       console.error('[store] identity_records insert failed:', insertErr);
-      throw new Error(`Could not save identity record: ${insertErr.message}`);
+      throw new Error(`Could not write identity record: ${insertErr.message}`);
     }
-    // 2) Mark request completed + stamp reference.
-    const updated = await updateRequest(id, {
-      status: 'completed',
-      submittedAt,
-      reference,
-    });
 
-    // 3) Fire-and-forget confirmation email via Edge Function.
-    //    We don't block the candidate's "you're done" screen on this — if
-    //    the email fails (Resend down, key missing, etc.), the submission
-    //    is still durable and HR can resend manually.
+    const { error: subErr } = await supabase
+      .from('form_submissions')
+      .update({ status: 'approved', approved_at: approvedAt })
+      .eq('request_id', requestId);
+    if (subErr) console.warn('[store] flip submission status failed:', subErr);
+
+    await updateRequest(requestId, { status: 'completed', submittedAt: approvedAt, reference });
+
+    const { error: auditErr } = await supabase.from('approvals').insert({
+      submission_id: submission.id,
+      request_id: requestId,
+      manager_email: manager.email,
+      manager_name: manager.name || null,
+      action: 'approved',
+      comments: comments || null,
+      field_changes: fieldChanges,
+    });
+    if (auditErr) console.warn('[store] approvals insert failed:', auditErr);
+
     sendConfirmationEmail({
-      email: req.email,
+      email: request.email,
       reference,
-      givenName: formData.givenName || req.givenName,
-      familyName: formData.familyName || req.familyName,
-    }).catch((err) => {
-      console.warn('[store] confirmation email failed (non-blocking):', err);
-    });
+      givenName: request.givenName,
+      familyName: request.familyName,
+    }).catch((err) => console.warn('[store] confirmation email failed (non-blocking):', err));
 
-    return updated;
+    return { reference, approvedAt };
   }
 
-  const existing = read(KEY_REQUESTS, []).find((r) => r.id === id);
-  if (!existing) return null;
-  const updated = {
-    ...existing,
+  const all = read(KEY_REQUESTS, []);
+  const idx = all.findIndex((r) => r.id === requestId);
+  if (idx < 0) throw new Error('Request not found');
+  const req = all[idx];
+  const sub = req.draftSubmission || {};
+  const p = sub.personal || {};
+  all[idx] = {
+    ...req,
     status: 'completed',
-    submission: { ...formData, submittedAt, reference },
+    submission: {
+      submittedAt: sub.submittedAt || approvedAt,
+      reference,
+      givenName: req.givenName,
+      familyName: req.familyName,
+      preferredName: p.preferredName,
+      dob: p.dob,
+      mobile: p.mobile,
+      emergencyName: p.emergencyName,
+      emergencyPhone: p.emergencyPhone,
+      relationship: p.relationship,
+      securityClearance: sub.securityClearance?.clearanceLevel,
+    },
+    draftSubmission: { ...sub, status: 'approved', approvedAt },
+    approvalLog: [
+      ...(req.approvalLog || []),
+      { action: 'approved', manager, comments, fieldChanges, at: approvedAt },
+    ],
   };
-  const all = read(KEY_REQUESTS, []).map((r) => (r.id === id ? updated : r));
   write(KEY_REQUESTS, all);
   addNotification({
-    kind: 'completed',
-    title: `Form completed — ${existing.givenName} ${existing.familyName}`,
-    body: 'Onboarding form submitted. Identity record written to IAM DB.',
-    requestId: id,
+    kind: 'approved',
+    title: `Approved — ${req.givenName} ${req.familyName}`,
+    body: `Manager ${manager.name || manager.email} approved the submission. Identity record written.`,
+    requestId,
   });
-  return updated;
+  return { reference, approvedAt };
+}
+
+export async function rejectSubmission(requestId, { manager, comments }) {
+  if (!manager?.email) throw new Error('Manager email is required');
+  const rejectedAt = now();
+
+  if (hasSupabase) {
+    const { data: sub } = await supabase
+      .from('form_submissions')
+      .update({ status: 'rejected', rejected_at: rejectedAt })
+      .eq('request_id', requestId)
+      .select()
+      .single();
+    await updateRequest(requestId, { status: 'rejected' });
+    if (sub) {
+      await supabase.from('approvals').insert({
+        submission_id: sub.id,
+        request_id: requestId,
+        manager_email: manager.email,
+        manager_name: manager.name || null,
+        action: 'rejected',
+        comments: comments || null,
+      });
+    }
+    return { rejectedAt };
+  }
+
+  const all = read(KEY_REQUESTS, []);
+  const idx = all.findIndex((r) => r.id === requestId);
+  if (idx < 0) return null;
+  all[idx] = {
+    ...all[idx],
+    status: 'rejected',
+    draftSubmission: { ...(all[idx].draftSubmission || {}), status: 'rejected', rejectedAt },
+    approvalLog: [
+      ...(all[idx].approvalLog || []),
+      { action: 'rejected', manager, comments, at: rejectedAt },
+    ],
+  };
+  write(KEY_REQUESTS, all);
+  return { rejectedAt };
+}
+
+export async function requestChanges(requestId, { manager, comments }) {
+  if (!manager?.email) throw new Error('Manager email is required');
+  if (!comments) throw new Error('Comments are required when requesting changes');
+
+  if (hasSupabase) {
+    const { data: sub } = await supabase
+      .from('form_submissions')
+      .update({ status: 'changes_requested' })
+      .eq('request_id', requestId)
+      .select()
+      .single();
+    await updateRequest(requestId, { status: 'link_sent' });
+    if (sub) {
+      await supabase.from('approvals').insert({
+        submission_id: sub.id,
+        request_id: requestId,
+        manager_email: manager.email,
+        manager_name: manager.name || null,
+        action: 'changes_requested',
+        comments,
+      });
+    }
+    return { ok: true };
+  }
+
+  const all = read(KEY_REQUESTS, []);
+  const idx = all.findIndex((r) => r.id === requestId);
+  if (idx < 0) return null;
+  all[idx] = {
+    ...all[idx],
+    status: 'link_sent',
+    draftSubmission: {
+      ...(all[idx].draftSubmission || {}),
+      status: 'changes_requested',
+    },
+    approvalLog: [
+      ...(all[idx].approvalLog || []),
+      { action: 'changes_requested', manager, comments, at: now() },
+    ],
+  };
+  write(KEY_REQUESTS, all);
+  return { ok: true };
+}
+
+// Legacy single-step submission. Kept for backwards compatibility — now
+// thin-wraps the new two-step flow. The request lands in pending_approval
+// like any other submission.
+export async function submitCandidateForm(id, formData) {
+  const sections = {
+    personal: {
+      preferredName: formData.preferredName,
+      dob: formData.dob,
+      mobile: formData.mobile,
+      emergencyName: formData.emergencyName,
+      emergencyPhone: formData.emergencyPhone,
+      relationship: formData.relationship,
+    },
+    securityClearance: { clearanceLevel: formData.securityClearance },
+    buildingPass: {},
+    conflictOfInterest: {},
+  };
+  return submitForApproval(id, sections);
 }
 
 /** Mark requests whose expires_at is in the past as 'expired'. */
@@ -692,7 +980,6 @@ export async function refreshStatuses() {
 
 // ─────────────────────────────────────────────────────────────
 // Notifications — ephemeral, localStorage only
-// (HR UI notifications don't need to sync across devices.)
 // ─────────────────────────────────────────────────────────────
 
 export function listNotifications() {
@@ -720,7 +1007,7 @@ export function markAllNotificationsRead() {
 // ─────────────────────────────────────────────────────────────
 
 export async function seedIfEmpty() {
-  if (hasSupabase) return; // never seed real DB with demo rows
+  if (hasSupabase) return;
   if (read(KEY_REQUESTS, []).length > 0) return;
 
   const sample = [

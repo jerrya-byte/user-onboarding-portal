@@ -8,6 +8,7 @@ export default function GovChrome({ variant = 'hr' }) {
       <GovBar />
       <AppHeader variant={variant} />
       {variant === 'hr' && <HRNav />}
+      {variant === 'manager' && <ManagerNav />}
     </>
   );
 }
@@ -30,6 +31,12 @@ function GovBar() {
 }
 
 function AppHeader({ variant }) {
+  const tagline =
+    variant === 'hr'
+      ? 'HR Administration System'
+      : variant === 'manager'
+        ? 'Manager Approvals'
+        : 'Department of Superheroes — Australian Government';
   return (
     <header
       className="bg-navy px-8 flex items-stretch justify-between border-b-[3px] border-gold-light"
@@ -47,13 +54,11 @@ function AppHeader({ variant }) {
             Identity Onboarding Portal
           </h1>
           <p className="text-[11px] text-slate1 tracking-[0.4px] uppercase">
-            {variant === 'hr'
-              ? 'HR Administration System'
-              : 'Department of Superheroes — Australian Government'}
+            {tagline}
           </p>
         </div>
       </div>
-      {variant === 'hr' && <SignedInUser />}
+      {(variant === 'hr' || variant === 'manager') && <SignedInUser />}
     </header>
   );
 }
@@ -143,6 +148,25 @@ function HRNav() {
       <NavLink to="/hr/identities" className={navClass}>HR · Identities</NavLink>
       <NavLink to="/hr/termination" className={navClass}>HR · Termination</NavLink>
       <ReissueNavLink />
+      <NavLink to="/manager/dashboard" className={navClass}>Manager · Approvals</NavLink>
+    </nav>
+  );
+}
+
+function ManagerNav() {
+  const navClass = ({ isActive }) =>
+    `bg-transparent border-0 cursor-pointer py-3 px-4 text-[13px] font-semibold
+     tracking-[0.3px] border-b-[3px] whitespace-nowrap transition-colors no-underline
+     min-h-[44px] inline-flex items-center
+     focus-visible:outline-2 focus-visible:outline-offset-[-2px]
+     focus-visible:outline-gold-light ${
+       isActive
+         ? 'text-gold-light border-gold-light'
+         : 'text-slate1 border-transparent hover:text-white'
+     }`;
+  return (
+    <nav aria-label="Manager sections" className="bg-navy-light px-8 flex gap-0.5 overflow-x-auto">
+      <NavLink to="/manager/dashboard" className={navClass}>Manager · Pending Approvals</NavLink>
     </nav>
   );
 }
