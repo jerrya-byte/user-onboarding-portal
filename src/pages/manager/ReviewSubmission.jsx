@@ -31,12 +31,16 @@ const SECTION_TABS = [
 ];
 
 const RELATIONSHIPS = ['Spouse / Partner', 'Parent', 'Sibling', 'Friend', 'Other'];
-const CLEARANCE_LEVELS = [
-  'None',
+const CLEARANCE_REQUIRED = [
   'Baseline',
   'Negative Vetting 1 (NV1)',
   'Negative Vetting 2 (NV2)',
   'Positive Vetting (PV)',
+];
+const APS_LEVELS = [
+  'APS1', 'APS2', 'APS3', 'APS4', 'APS5', 'APS6',
+  'EL1', 'EL2',
+  'SES1 (Branch Manager)', 'SES2 (General Manager)', 'SES3 (Deputy CEO)', 'CEO',
 ];
 const PASS_TYPES = ['Standard Employee', 'Contractor', 'Visitor (recurring)', 'Executive'];
 
@@ -431,29 +435,57 @@ function SecurityClearanceEditor({ state, onChange }) {
   const set = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.value }));
   return (
     <>
-      <Field label="Clearance level">
-        <SelectInput value={state.clearanceLevel || ''} onChange={set('clearanceLevel')}>
-          <option value="">— Select —</option>
-          {CLEARANCE_LEVELS.map((c) => <option key={c}>{c}</option>)}
-        </SelectInput>
-      </Field>
       <div className="gov-field-row">
-        <Field label="Sponsoring agency">
-          <TextInput value={state.sponsoringAgency || ''} onChange={set('sponsoringAgency')} />
+        <Field label="Legal surname">
+          <TextInput value={state.legalSurname || ''} onChange={set('legalSurname')} />
         </Field>
-        <Field label="Date granted">
-          <TextInput type="date" value={state.dateGranted || ''} onChange={set('dateGranted')} />
+        <Field label="Legal first name">
+          <TextInput value={state.legalFirstName || ''} onChange={set('legalFirstName')} />
         </Field>
       </div>
-      <Field label="Expiry date">
-        <TextInput type="date" value={state.expiryDate || ''} onChange={set('expiryDate')} />
+      <div className="gov-field-row">
+        <Field label="Date of birth">
+          <TextInput type="date" value={state.dob || ''} onChange={set('dob')} />
+        </Field>
+        <Field label="Australian Citizen">
+          <SelectInput value={state.australianCitizen || ''} onChange={set('australianCitizen')}>
+            <option value="">— Select —</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </SelectInput>
+        </Field>
+      </div>
+      <Field label="Mobile number">
+        <TextInput type="tel" maxLength={10} value={state.mobile || ''} onChange={set('mobile')} />
       </Field>
-      <Field label="Held a prior higher clearance?">
-        <SelectInput value={state.hasPriorClearance || ''} onChange={set('hasPriorClearance')}>
+      <div className="gov-field-row">
+        <Field label="Position title">
+          <TextInput value={state.positionTitle || ''} onChange={set('positionTitle')} />
+        </Field>
+        <Field label="APS level or equivalent">
+          <SelectInput value={state.apsLevel || ''} onChange={set('apsLevel')}>
+            <option value="">— Select —</option>
+            {APS_LEVELS.map((l) => <option key={l}>{l}</option>)}
+          </SelectInput>
+        </Field>
+      </div>
+      <Field label="Clearance required">
+        <SelectInput value={state.clearanceRequired || ''} onChange={set('clearanceRequired')}>
           <option value="">— Select —</option>
-          <option value="no">No</option>
-          <option value="yes">Yes</option>
+          {CLEARANCE_REQUIRED.map((c) => <option key={c}>{c}</option>)}
         </SelectInput>
+      </Field>
+      <Field label="Existing / previous clearance level">
+        <SelectInput
+          value={state.previousClearanceLevel || ''}
+          onChange={set('previousClearanceLevel')}
+        >
+          <option value="">— None —</option>
+          {CLEARANCE_REQUIRED.map((c) => <option key={c}>{c}</option>)}
+        </SelectInput>
+      </Field>
+      <Field label="Existing / previous sponsor">
+        <TextInput value={state.previousSponsor || ''} onChange={set('previousSponsor')} />
       </Field>
     </>
   );

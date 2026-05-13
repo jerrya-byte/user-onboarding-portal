@@ -16,12 +16,19 @@ import {
 import { hasSupabase, supabase } from '../../lib/supabase';
 
 const RELATIONSHIPS = ['Spouse / Partner', 'Parent', 'Sibling', 'Friend', 'Other'];
-const CLEARANCE_LEVELS = [
-  'None',
+// AGSVA clearance levels — used for both "Clearance required" (target for
+// this role) and "Existing / previous clearance level" (what the candidate
+// holds today).
+const CLEARANCE_REQUIRED = [
   'Baseline',
   'Negative Vetting 1 (NV1)',
   'Negative Vetting 2 (NV2)',
   'Positive Vetting (PV)',
+];
+const APS_LEVELS = [
+  'APS1', 'APS2', 'APS3', 'APS4', 'APS5', 'APS6',
+  'EL1', 'EL2',
+  'SES1 (Branch Manager)', 'SES2 (General Manager)', 'SES3 (Deputy CEO)', 'CEO',
 ];
 const PASS_TYPES = ['Standard Employee', 'Contractor', 'Visitor (recurring)', 'Executive'];
 const ACCESS_ZONES = ['General Office', 'Secure Zone (Zone 2)', 'Server Room', 'Data Centre', 'Records Vault'];
@@ -136,14 +143,26 @@ function FormView({ req, initialDraft, isPreview }) {
     relationship: '',
     ...(initialDraft?.personal || {}),
   }));
-  const [securityClearance, setSecurityClearance] = useState(() => ({
-    clearanceLevel: '',
-    sponsoringAgency: '',
-    dateGranted: '',
-    expiryDate: '',
-    hasPriorClearance: '',
-    ...(initialDraft?.securityClearance || {}),
-  }));
+  const [securityClearance, setSecurityClearance] = useState(() => {
+    const saved = initialDraft?.securityClearance || {};
+    const savedPersonal = initialDraft?.personal || {};
+    return {
+      // Defaults pull from HR-supplied request (legal name, position, APS
+      // level) and the candidate's Personal section (DOB, mobile) so the
+      // candidate doesn't re-type — but all are editable, since AGSVA
+      // forms require the *legal* name, not preferred/nickname.
+      legalSurname:           saved.legalSurname            ?? (req.familyName || ''),
+      legalFirstName:         saved.legalFirstName          ?? (req.givenName  || ''),
+      dob:                    saved.dob                     ?? (savedPersonal.dob    || ''),
+      australianCitizen:      saved.australianCitizen       ?? '',
+      mobile:                 saved.mobile                  ?? (savedPersonal.mobile || ''),
+      positionTitle:          saved.positionTitle           ?? (req.position   || ''),
+      apsLevel:               saved.apsLevel                ?? (req.level      || ''),
+      clearanceRequired:      saved.clearanceRequired       ?? '',
+      previousClearanceLevel: saved.previousClearanceLevel  ?? (saved.clearanceLevel || ''),
+      previousSponsor:        saved.previousSponsor         ?? (saved.sponsoringAgency || ''),
+    };
+  });
   const [buildingPass, setBuildingPass] = useState(() => ({
     passType: '',
     accessZones: [],
@@ -211,14 +230,22 @@ function FormView({ req, initialDraft, isPreview }) {
         e.emergencyPhone = 'Enter a valid phone number';
     }
     if (currentKey === 'security_clearance') {
-      if (!securityClearance.clearanceLevel) e.clearanceLevel = 'Required';
-      // If they hold a clearance, the granting agency is mandatory.
+      if (!securityClearance.legalSurname?.trim()) e.legalSurname = 'Required';
+      if (!securityClearance.legalFirstName?.trim()) e.legalFirstName = 'Required';
+      if (!securityClearance.dob) e.dob = 'Required';
+      if (!securityClearance.australianCitizen) e.australianCitizen = 'Required';
+      if (!securityClearance.mobile?.trim()) e.mobile = 'Required';
+      else if (!/^\d{10}$/.test(securityClearance.mobile.replace(/[\s-]/g, '')))
+        e.mobile = 'Mobile must be 10 digits';
+      if (!securityClearance.positionTitle?.trim()) e.positionTitle = 'Required';
+      if (!securityClearance.apsLevel) e.apsLevel = 'Required';
+      if (!securityClearance.clearanceRequired) e.clearanceRequired = 'Required';
+      // If they declare a previous clearance level, the sponsor is required.
       if (
-        securityClearance.clearanceLevel &&
-        securityClearance.clearanceLevel !== 'None' &&
-        !securityClearance.sponsoringAgency?.trim()
+        securityClearance.previousClearanceLevel &&
+        !securityClearance.previousSponsor?.trim()
       ) {
-        e.sponsoringAgency = 'Required when a clearance is held';
+        e.previousSponsor = 'Required when a previous clearance is declared';
       }
     }
     if (currentKey === 'building_pass') {
@@ -552,62 +579,135 @@ function PersonalSection({ req, state, onChange, errOf }) {
 
 function SecurityClearanceSection({ state, onChange, errOf }) {
   const set = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.value }));
-  const showDetails =
-    state.clearanceLevel && state.clearanceLevel !== 'None';
   return (
     <Card
-      title="Security Clearance"
-      subtitle="Declare any current AGSVA security clearance. Select 'None' if you have never held a clearance."
+      title="Security Clearance Application"
+      subtitle="Complete this form to apply for the clearance required for your role. Some fields are pre-filled from HR records — please verify and use your legal name (as it appears on your passport or ID)."
     >
+      <SectionSep>Identity</SectionSep>
+      <div className="gov-field-row">
+        <Field label="Legal surname" required error={errOf('legalSurname')}>
+          <TextInput
+            value={state.legalSurname || ''}
+            onChange={set('legalSurname')}
+            error={!!errOf('legalSurname')}
+          />
+        </Field>
+        <Field label="Legal first name" required error={errOf('legalFirstName')}>
+          <TextInput
+            value={state.legalFirstName || ''}
+            onChange={set('legalFirstName')}
+            error={!!errOf('legalFirstName')}
+          />
+        </Field>
+      </div>
+      <div className="gov-field-row">
+        <Field label="Date of birth" required error={errOf('dob')}>
+          <TextInput
+            type="date"
+            value={state.dob || ''}
+            onChange={set('dob')}
+            error={!!errOf('dob')}
+          />
+        </Field>
+        <Field
+          label="Australian Citizen"
+          required
+          error={errOf('australianCitizen')}
+        >
+          <SelectInput
+            value={state.australianCitizen || ''}
+            onChange={set('australianCitizen')}
+            error={!!errOf('australianCitizen')}
+          >
+            <option value="">— Select —</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </SelectInput>
+        </Field>
+      </div>
       <Field
-        label="Current clearance level"
+        label="Mobile number"
         required
-        hint="Choose your highest active clearance level."
-        error={errOf('clearanceLevel')}
+        hint="10 digits — no country code or spaces."
+        error={errOf('mobile')}
+      >
+        <TextInput
+          type="tel"
+          inputMode="numeric"
+          maxLength={10}
+          placeholder="0412345678"
+          value={state.mobile || ''}
+          onChange={set('mobile')}
+          error={!!errOf('mobile')}
+        />
+      </Field>
+
+      <SectionSep>Position</SectionSep>
+      <div className="gov-field-row">
+        <Field label="Position title" required error={errOf('positionTitle')}>
+          <TextInput
+            value={state.positionTitle || ''}
+            onChange={set('positionTitle')}
+            error={!!errOf('positionTitle')}
+          />
+        </Field>
+        <Field
+          label="APS level or equivalent"
+          required
+          error={errOf('apsLevel')}
+        >
+          <SelectInput
+            value={state.apsLevel || ''}
+            onChange={set('apsLevel')}
+            error={!!errOf('apsLevel')}
+          >
+            <option value="">— Select —</option>
+            {APS_LEVELS.map((l) => <option key={l}>{l}</option>)}
+          </SelectInput>
+        </Field>
+      </div>
+
+      <SectionSep>Clearance</SectionSep>
+      <Field
+        label="Clearance required"
+        required
+        hint="The AGSVA clearance level needed for this role."
+        error={errOf('clearanceRequired')}
       >
         <SelectInput
-          value={state.clearanceLevel || ''}
-          onChange={set('clearanceLevel')}
-          error={!!errOf('clearanceLevel')}
+          value={state.clearanceRequired || ''}
+          onChange={set('clearanceRequired')}
+          error={!!errOf('clearanceRequired')}
         >
           <option value="">— Select —</option>
-          {CLEARANCE_LEVELS.map((c) => <option key={c}>{c}</option>)}
+          {CLEARANCE_REQUIRED.map((c) => <option key={c}>{c}</option>)}
         </SelectInput>
       </Field>
-
-      <Field label="Have you previously held a higher clearance?">
-        <SelectInput value={state.hasPriorClearance || ''} onChange={set('hasPriorClearance')}>
-          <option value="">— Select —</option>
-          <option value="no">No</option>
-          <option value="yes">Yes</option>
+      <Field
+        label="Existing / previous clearance level"
+        hint="Leave blank if you have never held a clearance."
+      >
+        <SelectInput
+          value={state.previousClearanceLevel || ''}
+          onChange={set('previousClearanceLevel')}
+        >
+          <option value="">— None —</option>
+          {CLEARANCE_REQUIRED.map((c) => <option key={c}>{c}</option>)}
         </SelectInput>
       </Field>
-
-      {showDetails && (
-        <>
-          <SectionSep>Active clearance details</SectionSep>
-          <div className="gov-field-row">
-            <Field
-              label="Sponsoring agency"
-              required
-              error={errOf('sponsoringAgency')}
-            >
-              <TextInput
-                placeholder="e.g. Department of Home Affairs"
-                value={state.sponsoringAgency || ''}
-                onChange={set('sponsoringAgency')}
-                error={!!errOf('sponsoringAgency')}
-              />
-            </Field>
-            <Field label="Date granted">
-              <TextInput type="date" value={state.dateGranted || ''} onChange={set('dateGranted')} />
-            </Field>
-          </div>
-          <Field label="Clearance expiry date">
-            <TextInput type="date" value={state.expiryDate || ''} onChange={set('expiryDate')} />
-          </Field>
-        </>
-      )}
+      <Field
+        label="Existing / previous sponsor"
+        hint="Agency or department that sponsored your prior clearance."
+        error={errOf('previousSponsor')}
+      >
+        <TextInput
+          placeholder="e.g. Department of Home Affairs"
+          value={state.previousSponsor || ''}
+          onChange={set('previousSponsor')}
+          error={!!errOf('previousSponsor')}
+        />
+      </Field>
     </Card>
   );
 }
@@ -823,11 +923,15 @@ function ReviewSection({ req, personal, securityClearance, buildingPass, conflic
         title="Security Clearance"
         onEdit={() => onJump('security_clearance')}
         rows={[
-          ['Clearance Level', dash(securityClearance.clearanceLevel)],
-          ['Sponsoring Agency', dash(securityClearance.sponsoringAgency)],
-          ['Date Granted', dash(securityClearance.dateGranted)],
-          ['Expiry', dash(securityClearance.expiryDate)],
-          ['Held Prior Clearance', yesNo(securityClearance.hasPriorClearance)],
+          ['Legal Name', `${dash(securityClearance.legalFirstName)} ${dash(securityClearance.legalSurname)}`],
+          ['Date of Birth', dash(securityClearance.dob)],
+          ['Australian Citizen', yesNo(securityClearance.australianCitizen)],
+          ['Mobile Number', dash(securityClearance.mobile)],
+          ['Position Title', dash(securityClearance.positionTitle)],
+          ['APS Level', dash(securityClearance.apsLevel)],
+          ['Clearance Required', dash(securityClearance.clearanceRequired)],
+          ['Previous Clearance Level', dash(securityClearance.previousClearanceLevel)],
+          ['Previous Sponsor', dash(securityClearance.previousSponsor)],
         ]}
       />
       <ReviewBlock

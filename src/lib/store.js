@@ -774,7 +774,14 @@ export async function approveSubmission(requestId, { manager, comments, fieldCha
       emergency_name: p.emergencyName || null,
       emergency_phone: p.emergencyPhone || null,
       relationship: p.relationship || null,
-      security_clearance: submission.securityClearance?.clearanceLevel || null,
+      // Prefer the clearance the role REQUIRES (forward-looking — what IAM
+      // should provision toward). Fall back to the candidate's existing
+      // level, then to the legacy single-field value for old drafts.
+      security_clearance:
+        submission.securityClearance?.clearanceRequired ||
+        submission.securityClearance?.previousClearanceLevel ||
+        submission.securityClearance?.clearanceLevel ||
+        null,
     };
     const { error: insertErr } = await supabase
       .from('identity_records')
@@ -833,7 +840,11 @@ export async function approveSubmission(requestId, { manager, comments, fieldCha
       emergencyName: p.emergencyName,
       emergencyPhone: p.emergencyPhone,
       relationship: p.relationship,
-      securityClearance: sub.securityClearance?.clearanceLevel,
+      securityClearance:
+        sub.securityClearance?.clearanceRequired ||
+        sub.securityClearance?.previousClearanceLevel ||
+        sub.securityClearance?.clearanceLevel ||
+        null,
     },
     draftSubmission: { ...sub, status: 'approved', approvedAt },
     approvalLog: [
