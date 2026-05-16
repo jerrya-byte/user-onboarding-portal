@@ -30,13 +30,25 @@ const APS_LEVELS = [
   'EL1', 'EL2',
   'SES1 (Branch Manager)', 'SES2 (General Manager)', 'SES3 (Deputy CEO)', 'CEO',
 ];
-const PASS_TYPES = ['Standard Employee', 'Contractor', 'Visitor (recurring)', 'Executive'];
-const ACCESS_ZONES = ['General Office', 'Secure Zone (Zone 2)', 'Server Room', 'Data Centre', 'Records Vault'];
+// Building pass — employment types accepted on the DSH access pass form.
+const EMPLOYMENT_TYPES = [
+  'APS Employee (on-going)',
+  'APS Employee (non-ongoing)',
+  'Contractor/Labor Hire',
+  'External – Government',
+  'External – Other (ie. Trades, Technicians, Cleaners)',
+];
+// Employment types that require a contract start + finish date.
+const CONTRACT_DATE_TYPES = new Set([
+  'APS Employee (non-ongoing)',
+  'Contractor/Labor Hire',
+  'External – Other (ie. Trades, Technicians, Cleaners)',
+]);
 
 const SECTIONS = [
   { key: 'personal',             label: 'Personal Details',      hint: 'Contact + emergency info' },
   { key: 'security_clearance',   label: 'Security Clearance',    hint: 'AGSVA clearance form' },
-  { key: 'building_pass',        label: 'Building Pass',         hint: 'Access + photo consent' },
+  { key: 'building_pass',        label: 'Building Pass',         hint: 'DSH access pass application' },
   { key: 'conflict_of_interest', label: 'Conflict of Interest',  hint: 'Declarations' },
   { key: 'review',               label: 'Review & Submit',       hint: 'Final check' },
 ];
@@ -163,14 +175,31 @@ function FormView({ req, initialDraft, isPreview }) {
       previousSponsor:        saved.previousSponsor         ?? (saved.sponsoringAgency || ''),
     };
   });
-  const [buildingPass, setBuildingPass] = useState(() => ({
-    passType: '',
-    accessZones: [],
-    photoConsent: '',
-    medicalConditions: '',
-    dietaryRequirements: '',
-    ...(initialDraft?.buildingPass || {}),
-  }));
+  const [buildingPass, setBuildingPass] = useState(() => {
+    const saved = initialDraft?.buildingPass || {};
+    return {
+      // Section 1 — Details of application (Initial Access Pass is static-Yes)
+      initialAccessPass: 'Yes',
+      firstName:       saved.firstName       ?? (req.givenName  || ''),
+      otherGivenNames: saved.otherGivenNames ?? '',
+      surname:         saved.surname         ?? (req.familyName || ''),
+      // Section 2 — Employment type (Agency is static-DSH)
+      employmentType:   saved.employmentType   ?? '',
+      startDate:        saved.startDate        ?? (req.commencement || ''),
+      agency:           'DSH',
+      contractStartDate: saved.contractStartDate ?? (req.commencement || ''),
+      contractEndDate:   saved.contractEndDate   ?? '',
+      // Section 3 — Building access (Manager fills these in during review)
+      buildingAddress:     saved.buildingAddress     ?? '',
+      daytimeAccess:       saved.daytimeAccess       ?? '',
+      publicHolidayAccess: saved.publicHolidayAccess ?? '',
+      managerSignDate:     saved.managerSignDate     ?? '',
+      // Section 5 — Conditions + applicant signature
+      conditionsAcknowledged: saved.conditionsAcknowledged ?? false,
+      applicantSignature:     saved.applicantSignature     ?? '',
+      applicantSignDate:      saved.applicantSignDate      ?? '',
+    };
+  });
   const [conflictOfInterest, setConflictOfInterest] = useState(() => ({
     hasExternalEmployment: '',
     externalEmployer: '',
@@ -249,8 +278,19 @@ function FormView({ req, initialDraft, isPreview }) {
       }
     }
     if (currentKey === 'building_pass') {
-      if (!buildingPass.passType) e.passType = 'Required';
-      if (!buildingPass.photoConsent) e.photoConsent = 'Required';
+      if (!buildingPass.firstName?.trim()) e.firstName = 'Required';
+      if (!buildingPass.surname?.trim()) e.surname = 'Required';
+      if (!buildingPass.employmentType) e.employmentType = 'Required';
+      if (CONTRACT_DATE_TYPES.has(buildingPass.employmentType)) {
+        if (!buildingPass.contractStartDate)
+          e.contractStartDate = 'Required for this employment type';
+        if (!buildingPass.contractEndDate)
+          e.contractEndDate = 'Required for this employment type';
+      }
+      if (!buildingPass.conditionsAcknowledged)
+        e.conditionsAcknowledged = 'You must agree to the conditions of issue';
+      if (!buildingPass.applicantSignature?.trim()) e.applicantSignature = 'Required';
+      if (!buildingPass.applicantSignDate) e.applicantSignDate = 'Required';
     }
     if (currentKey === 'conflict_of_interest') {
       if (!conflictOfInterest.hasExternalEmployment) e.hasExternalEmployment = 'Required';
@@ -714,83 +754,208 @@ function SecurityClearanceSection({ state, onChange, errOf }) {
 
 function BuildingPassSection({ state, onChange, errOf }) {
   const set = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.value }));
-  const toggleZone = (zone) => () => {
-    onChange((s) => {
-      const cur = new Set(s.accessZones || []);
-      if (cur.has(zone)) cur.delete(zone); else cur.add(zone);
-      return { ...s, accessZones: [...cur] };
-    });
-  };
+  const setBool = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.checked }));
+  const showContractDates = CONTRACT_DATE_TYPES.has(state.employmentType);
   return (
     <Card
-      title="Building Pass Application"
-      subtitle="Information required to issue your physical building pass and access card."
+      title="DSH Building Access Pass Application"
+      subtitle="Apply for the building access pass required for your role. Fields marked 'Manager to complete' will be set by your reporting manager during approval."
     >
-      <Field label="Pass type" required error={errOf('passType')}>
-        <SelectInput
-          value={state.passType || ''}
-          onChange={set('passType')}
-          error={!!errOf('passType')}
-        >
-          <option value="">— Select —</option>
-          {PASS_TYPES.map((t) => <option key={t}>{t}</option>)}
-        </SelectInput>
+      <SectionSep>Section 1 — Details of Application</SectionSep>
+      <Field label="Initial Access Pass Application" prefilled>
+        <TextInput prefilled value="Yes" readOnly />
+      </Field>
+      <div className="gov-field-row">
+        <Field label="First name" required error={errOf('firstName')}>
+          <TextInput
+            value={state.firstName || ''}
+            onChange={set('firstName')}
+            error={!!errOf('firstName')}
+          />
+        </Field>
+        <Field label="Other given name(s)">
+          <TextInput value={state.otherGivenNames || ''} onChange={set('otherGivenNames')} />
+        </Field>
+      </div>
+      <Field label="SURNAME" required error={errOf('surname')}>
+        <TextInput
+          value={state.surname || ''}
+          onChange={set('surname')}
+          error={!!errOf('surname')}
+        />
       </Field>
 
-      <Field
-        label="Requested access zones"
-        hint="Select all zones you need access to. Your manager will confirm or revise these on approval."
-      >
-        <div className="flex flex-col gap-2 mt-1">
-          {ACCESS_ZONES.map((z) => (
-            <label key={z} className="inline-flex items-center gap-2 text-[14px]">
-              <input
-                type="checkbox"
-                checked={(state.accessZones || []).includes(z)}
-                onChange={toggleZone(z)}
-                className="w-4 h-4"
+      <SectionSep>Section 2 — Employment Type</SectionSep>
+      <Field label="Employment type" required error={errOf('employmentType')}>
+        <SelectInput
+          value={state.employmentType || ''}
+          onChange={set('employmentType')}
+          error={!!errOf('employmentType')}
+        >
+          <option value="">— Select —</option>
+          {EMPLOYMENT_TYPES.map((t) => <option key={t}>{t}</option>)}
+        </SelectInput>
+      </Field>
+      <div className="gov-field-row">
+        <Field label="Start date" prefilled prefillNote="Pre-filled from HR commencement date">
+          <TextInput type="date" prefilled value={state.startDate || ''} readOnly />
+        </Field>
+        <Field label="Agency / Organisation / Company" prefilled>
+          <TextInput prefilled value="DSH" readOnly />
+        </Field>
+      </div>
+      {showContractDates && (
+        <>
+          <p className="text-[12px] text-ink-soft mb-2 mt-2">
+            Contract dates are required for Labour Hire, Non-Ongoing and External – Other employment types.
+          </p>
+          <div className="gov-field-row">
+            <Field label="Contract start date" required error={errOf('contractStartDate')}>
+              <TextInput
+                type="date"
+                value={state.contractStartDate || ''}
+                onChange={set('contractStartDate')}
+                error={!!errOf('contractStartDate')}
               />
-              {z}
-            </label>
-          ))}
-        </div>
+            </Field>
+            <Field label="Contract finish date" required error={errOf('contractEndDate')}>
+              <TextInput
+                type="date"
+                value={state.contractEndDate || ''}
+                onChange={set('contractEndDate')}
+                error={!!errOf('contractEndDate')}
+              />
+            </Field>
+          </div>
+        </>
+      )}
+
+      <SectionSep>Section 3 — Access Required (Manager to complete)</SectionSep>
+      <Alert kind="info" className="mb-3">
+        Your reporting manager will complete this section during approval — you can leave it as-is.
+      </Alert>
+      <Field label="Building address (including any specific access such as SCIF)">
+        <TextInput
+          placeholder="To be set by manager"
+          value={state.buildingAddress || ''}
+          readOnly
+          prefilled
+        />
       </Field>
+      <div className="gov-field-row">
+        <Field label="Daytime access — weekdays 6:30am to 7:30pm">
+          <TextInput
+            placeholder="To be set by manager"
+            value={state.daytimeAccess || ''}
+            readOnly
+            prefilled
+          />
+        </Field>
+        <Field label="24/7 / public holiday access (building above only)">
+          <TextInput
+            placeholder="To be set by manager"
+            value={state.publicHolidayAccess || ''}
+            readOnly
+            prefilled
+          />
+        </Field>
+      </div>
+
+      <SectionSep>Section 5 — Conditions of Issue</SectionSep>
+      <p className="text-[12px] text-ink-soft leading-relaxed mb-2">
+        All DSH building access passes require a passport-style photograph (head and shoulders, looking straight ahead, against a light plain background). All enquiries regarding this application process are to be directed to your DSH Regional Security Adviser: <strong>security@dhs.gov.au</strong> or <strong>1800 566 064</strong> (24/7).
+      </p>
+
+      <div
+        className="border border-border rounded-md bg-slate-50 p-4 text-[12px] leading-relaxed
+                   max-h-[280px] overflow-y-auto mb-3"
+        role="region"
+        aria-label="Conditions of Issue"
+        tabIndex={0}
+      >
+        <p className="font-semibold mb-2">Statement by applicant — I have read and agreed to comply with the following conditions of being issued with a DSH building access pass:</p>
+        <ol className="list-decimal pl-5 space-y-1.5">
+          <li>My DSH building access pass remains the property of the issuing Agency, and it has been issued for my use only for the performance of my authorised work duties. I understand I am not to wear my access pass when not inside.</li>
+          <li>I must prominently display the access pass when gaining access to, and when working from Agency premises, and designated secure areas for which I have been specifically authorised to access.</li>
+          <li>I must always wear the pass in a visible manner whilst on Agency premises and present any issued pass for inspection by DSH staff or security guards when entering or leaving the premises where asked.</li>
+          <li>
+            I must comply with DSH security policies and procedures whilst on the premises, including:
+            <ol className="list-[lower-alpha] pl-5 mt-1 space-y-0.5">
+              <li>where I open any electronically controlled access door, no unauthorised person gains access.</li>
+              <li>notifying the Issuing Authority if I have no further need or authority to continue accessing a secure area.</li>
+            </ol>
+          </li>
+          <li>I must take every reasonable precaution to protect any issued pass from loss, damage or theft.</li>
+          <li>It is my responsibility to identify the pass's expiry date and renew my access using the Agency application form.</li>
+          <li>I must not alter, tamper or destroy any issued pass, nor provide my pass to another person for their use, or for any other reason.</li>
+          <li>If my access pass is lost or stolen, I must report the loss immediately to the DSH Security Team and ensure that a security incident report is completed as soon as possible before a replacement access pass can be issued.</li>
+          <li>
+            Where I have received management approval to bring visitors onto the premises, I will be responsible for ensuring the visitor/s:
+            <ol className="list-[lower-alpha] pl-5 mt-1 space-y-0.5">
+              <li>are always escorted whilst on the premises by myself or another authorised employee</li>
+              <li>comply with all applicable security policies, procedures and protocols relating to the premises</li>
+              <li>obtain and wear a visitor pass in a visible manner at all times whilst on the premises, and return the pass to the Issuing Authority on departure</li>
+              <li>complete all fields in the visitor pass register, including the number of the issued pass</li>
+              <li>do not obtain unauthorised access to official information</li>
+              <li>do not take any photographs, video or sound recordings within the premises without appropriate authorisation, and</li>
+              <li>do not remove without appropriate authorisation any ICT assets, official information in the possession of the Agency, any plant or equipment in the premises, or any Australian Government property.</li>
+            </ol>
+          </li>
+          <li>I acknowledge the access pass will be disabled after 90 days if I do not enter and swipe the access card at an Agency facility.</li>
+          <li>If I am on long-term leave, I acknowledge that my access pass will be disabled for the period I am on leave and I will have to reapply for a new pass upon return.</li>
+        </ol>
+
+        <p className="font-semibold mt-4 mb-1">APP 5 notice for staff security purposes</p>
+        <p>
+          Your personal information is protected by law, including the Privacy Act 1988, and is collected by the Australian Government Department of Superheroes. This information is required under the Agency's Protective Security Policy Framework in order for you to gain unescorted building access. Your information, including your photograph, will be used by the Agency for identity verification purposes and to update your profile on Agency systems where required. Your information may be given to other parties for the purpose of investigation or where you have agreed or where it is required or authorised by law. Disclosures may include, but are not limited to, law enforcement and intelligence agencies.
+        </p>
+
+        <p className="font-semibold mt-4 mb-1">Properly displaying my DSH building access pass</p>
+        <ul className="list-disc pl-5 space-y-0.5">
+          <li>I am to wear my access pass at the front or side of my body.</li>
+          <li>The whole access pass is to be clearly visible to others.</li>
+          <li>For my personal safety I understand that I should remove my access pass, and anything else that identifies me as an Australian government employee, when I am outside the office in a public space.</li>
+        </ul>
+      </div>
 
       <Field
-        label="Photo consent"
+        label="I have read and agree to comply with the conditions of issue above"
         required
-        hint="A photo will be taken on your first day for your pass."
-        error={errOf('photoConsent')}
+        error={errOf('conditionsAcknowledged')}
       >
-        <SelectInput
-          value={state.photoConsent || ''}
-          onChange={set('photoConsent')}
-          error={!!errOf('photoConsent')}
-        >
-          <option value="">— Select —</option>
-          <option value="consent">I consent to a photograph being taken</option>
-          <option value="decline">I do not consent (manager will follow up)</option>
-        </SelectInput>
+        <label className="inline-flex items-start gap-2 text-[14px] mt-1">
+          <input
+            type="checkbox"
+            checked={!!state.conditionsAcknowledged}
+            onChange={setBool('conditionsAcknowledged')}
+            className="w-4 h-4 mt-1"
+          />
+          <span>I acknowledge and agree to all conditions listed in Section 5.</span>
+        </label>
       </Field>
 
-      <SectionSep>Wellbeing</SectionSep>
-      <Field
-        label="Medical conditions we should be aware of"
-        hint="Used for workplace adjustments and emergency response. Leave blank if none."
-      >
-        <TextArea
-          rows={3}
-          value={state.medicalConditions || ''}
-          onChange={set('medicalConditions')}
-        />
-      </Field>
-      <Field label="Dietary requirements">
-        <TextArea
-          rows={2}
-          value={state.dietaryRequirements || ''}
-          onChange={set('dietaryRequirements')}
-        />
-      </Field>
+      <div className="gov-field-row">
+        <Field
+          label="Applicant signature"
+          required
+          hint="Type your full name as your signature."
+          error={errOf('applicantSignature')}
+        >
+          <TextInput
+            value={state.applicantSignature || ''}
+            onChange={set('applicantSignature')}
+            error={!!errOf('applicantSignature')}
+          />
+        </Field>
+        <Field label="Date" required error={errOf('applicantSignDate')}>
+          <TextInput
+            type="date"
+            value={state.applicantSignDate || ''}
+            onChange={set('applicantSignDate')}
+            error={!!errOf('applicantSignDate')}
+          />
+        </Field>
+      </div>
     </Card>
   );
 }
@@ -916,14 +1081,14 @@ function ReviewSection({ req, personal, securityClearance, buildingPass, conflic
           ['Preferred Name', dash(personal.preferredName)],
           ['Date of Birth', dash(personal.dob)],
           ['Mobile', dash(personal.mobile)],
-          ['Emergency Contact', `${dash(personal.emergencyName)} — ${dash(personal.emergencyPhone)} (${dash(personal.relationship)})`],
+          ['Emergency Contact', dash(personal.emergencyName) + ' — ' + dash(personal.emergencyPhone) + ' (' + dash(personal.relationship) + ')'],
         ]}
       />
       <ReviewBlock
         title="Security Clearance"
         onEdit={() => onJump('security_clearance')}
         rows={[
-          ['Legal Name', `${dash(securityClearance.legalFirstName)} ${dash(securityClearance.legalSurname)}`],
+          ['Legal Name', dash(securityClearance.legalFirstName) + ' ' + dash(securityClearance.legalSurname)],
           ['Date of Birth', dash(securityClearance.dob)],
           ['Australian Citizen', yesNo(securityClearance.australianCitizen)],
           ['Mobile Number', dash(securityClearance.mobile)],
@@ -938,11 +1103,25 @@ function ReviewSection({ req, personal, securityClearance, buildingPass, conflic
         title="Building Pass"
         onEdit={() => onJump('building_pass')}
         rows={[
-          ['Pass Type', dash(buildingPass.passType)],
-          ['Access Zones', (buildingPass.accessZones || []).join(', ') || '—'],
-          ['Photo Consent', dash(buildingPass.photoConsent)],
-          ['Medical Conditions', dash(buildingPass.medicalConditions)],
-          ['Dietary Requirements', dash(buildingPass.dietaryRequirements)],
+          ['Initial Access Pass', 'Yes'],
+          ['First Name', dash(buildingPass.firstName)],
+          ['Other Given Names', dash(buildingPass.otherGivenNames)],
+          ['Surname', dash(buildingPass.surname)],
+          ['Employment Type', dash(buildingPass.employmentType)],
+          ['Start Date', dash(buildingPass.startDate)],
+          ['Agency', 'DSH'],
+          ...(CONTRACT_DATE_TYPES.has(buildingPass.employmentType)
+            ? [
+                ['Contract Start', dash(buildingPass.contractStartDate)],
+                ['Contract Finish', dash(buildingPass.contractEndDate)],
+              ]
+            : []),
+          ['Building Address', dash(buildingPass.buildingAddress) || 'To be set by manager'],
+          ['Daytime Access (weekdays)', dash(buildingPass.daytimeAccess) || 'To be set by manager'],
+          ['24/7 / Public Holiday Access', dash(buildingPass.publicHolidayAccess) || 'To be set by manager'],
+          ['Conditions Acknowledged', buildingPass.conditionsAcknowledged ? 'Yes' : 'No'],
+          ['Applicant Signature', dash(buildingPass.applicantSignature)],
+          ['Signed Date', dash(buildingPass.applicantSignDate)],
         ]}
       />
       <ReviewBlock

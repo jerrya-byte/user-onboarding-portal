@@ -42,7 +42,13 @@ const APS_LEVELS = [
   'EL1', 'EL2',
   'SES1 (Branch Manager)', 'SES2 (General Manager)', 'SES3 (Deputy CEO)', 'CEO',
 ];
-const PASS_TYPES = ['Standard Employee', 'Contractor', 'Visitor (recurring)', 'Executive'];
+const EMPLOYMENT_TYPES = [
+  'APS Employee (on-going)',
+  'APS Employee (non-ongoing)',
+  'Contractor/Labor Hire',
+  'External – Government',
+  'External – Other (ie. Trades, Technicians, Cleaners)',
+];
 
 export default function ReviewSubmission() {
   const { id } = useParams();
@@ -495,37 +501,94 @@ function BuildingPassEditor({ state, onChange }) {
   const set = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.value }));
   return (
     <>
-      <Field label="Pass type">
-        <SelectInput value={state.passType || ''} onChange={set('passType')}>
-          <option value="">— Select —</option>
-          {PASS_TYPES.map((t) => <option key={t}>{t}</option>)}
-        </SelectInput>
-      </Field>
-      <Field label="Requested access zones">
+      <SectionSep>Section 3 — Access Required (manager to complete)</SectionSep>
+      <Field
+        label="Building address (including any specific access such as SCIF)"
+      >
         <TextInput
-          value={(state.accessZones || []).join(', ')}
-          onChange={(e) =>
-            onChange((s) => ({
-              ...s,
-              accessZones: e.target.value.split(',').map((z) => z.trim()).filter(Boolean),
-            }))
-          }
+          placeholder="e.g. Level 4, 26 Narellan St Canberra — SCIF Zone B"
+          value={state.buildingAddress || ''}
+          onChange={set('buildingAddress')}
         />
       </Field>
-      <Field label="Photo consent">
-        <SelectInput value={state.photoConsent || ''} onChange={set('photoConsent')}>
+      <div className="gov-field-row">
+        <Field label="Daytime access — weekdays 6:30am to 7:30pm">
+          <SelectInput value={state.daytimeAccess || ''} onChange={set('daytimeAccess')}>
+            <option value="">— Select —</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </SelectInput>
+        </Field>
+        <Field label="24/7 / public holiday access (building above only)">
+          <SelectInput value={state.publicHolidayAccess || ''} onChange={set('publicHolidayAccess')}>
+            <option value="">— Select —</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </SelectInput>
+        </Field>
+      </div>
+      <Field label="Manager sign-off date">
+        <TextInput type="date" value={state.managerSignDate || ''} onChange={set('managerSignDate')} />
+      </Field>
+
+      <SectionSep>Section 1 — Applicant details (candidate filled)</SectionSep>
+      <Field label="Initial Access Pass Application" prefilled>
+        <TextInput prefilled value={state.initialAccessPass || 'Yes'} readOnly />
+      </Field>
+      <div className="gov-field-row">
+        <Field label="First name">
+          <TextInput value={state.firstName || ''} onChange={set('firstName')} />
+        </Field>
+        <Field label="Other given name(s)">
+          <TextInput value={state.otherGivenNames || ''} onChange={set('otherGivenNames')} />
+        </Field>
+      </div>
+      <Field label="Surname">
+        <TextInput value={state.surname || ''} onChange={set('surname')} />
+      </Field>
+
+      <SectionSep>Section 2 — Employment type (candidate filled)</SectionSep>
+      <Field label="Employment type">
+        <SelectInput value={state.employmentType || ''} onChange={set('employmentType')}>
           <option value="">— Select —</option>
-          <option value="consent">Consents to photo</option>
-          <option value="decline">Declines photo</option>
+          {EMPLOYMENT_TYPES.map((t) => <option key={t}>{t}</option>)}
         </SelectInput>
       </Field>
-      <SectionSep>Wellbeing</SectionSep>
-      <Field label="Medical conditions">
-        <TextArea rows={3} value={state.medicalConditions || ''} onChange={set('medicalConditions')} />
+      <div className="gov-field-row">
+        <Field label="Start date">
+          <TextInput type="date" value={state.startDate || ''} onChange={set('startDate')} />
+        </Field>
+        <Field label="Agency" prefilled>
+          <TextInput prefilled value={state.agency || 'DSH'} readOnly />
+        </Field>
+      </div>
+      <div className="gov-field-row">
+        <Field label="Contract start (if applicable)">
+          <TextInput type="date" value={state.contractStartDate || ''} onChange={set('contractStartDate')} />
+        </Field>
+        <Field label="Contract finish (if applicable)">
+          <TextInput type="date" value={state.contractEndDate || ''} onChange={set('contractEndDate')} />
+        </Field>
+      </div>
+
+      <SectionSep>Section 5 — Applicant declaration</SectionSep>
+      <Field label="Conditions of issue acknowledged">
+        <SelectInput
+          value={state.conditionsAcknowledged ? 'yes' : 'no'}
+          onChange={(e) => onChange((s) => ({ ...s, conditionsAcknowledged: e.target.value === 'yes' }))}
+        >
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </SelectInput>
       </Field>
-      <Field label="Dietary requirements">
-        <TextArea rows={2} value={state.dietaryRequirements || ''} onChange={set('dietaryRequirements')} />
-      </Field>
+      <div className="gov-field-row">
+        <Field label="Applicant signature">
+          <TextInput value={state.applicantSignature || ''} onChange={set('applicantSignature')} />
+        </Field>
+        <Field label="Signed date">
+          <TextInput type="date" value={state.applicantSignDate || ''} onChange={set('applicantSignDate')} />
+        </Field>
+      </div>
     </>
   );
 }
