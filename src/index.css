@@ -85,7 +85,8 @@ body {
   .gov-btn-secondary {
     @apply bg-surface text-navy border-[1.5px] border-navy;
   }
-  .gov-btn-secondary:hover:not(:disabled) { background: #EEF2F8; }
+  /* Light purple tint (~3% bg) that pairs with the purple primary. */
+  .gov-btn-secondary:hover:not(:disabled) { background: #F4EEFB; }
   .gov-btn-danger { @apply bg-error text-white; }
   .gov-btn-danger:hover:not(:disabled) { background: #6B1111; }
   .gov-btn-gold { @apply bg-gold-light text-white; }

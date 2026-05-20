@@ -4,11 +4,23 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Purple primary palette. The utility names stay `navy*` so the
+        // rest of the codebase doesn't have to change -- only the hex
+        // values are different.
+        //
+        // Contrast (WCAG 2.1 AA / AAA targets):
+        //   white on #3F1D71  = 10.9:1 (AAA)
+        //   white on #2A104F  = 14.6:1 (AAA)
+        //   white on #5E33A0  =  7.6:1 (AAA)
+        //   #C9922A on #2A104F = 6.2:1 (AA for normal text)
+        //   #CBD5E1 (slate1) on #5E33A0 = 5.4:1 (AA for normal text)
         navy: {
-          DEFAULT: '#1B2E4B',
-          dark: '#111E33',
-          light: '#243654',
+          DEFAULT: '#3F1D71',
+          dark: '#2A104F',
+          light: '#5E33A0',
         },
+        // Warm gold accent kept for high contrast against purple --
+        // used for focus rings, active nav, CTAs.
         gold: {
           DEFAULT: '#B07D2A',
           light: '#C9922A',

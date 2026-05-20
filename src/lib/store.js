@@ -527,6 +527,34 @@ async function sendConfirmationEmail({ email, reference, givenName, familyName }
   return { ok: true, data };
 }
 
+// Post-approval notifications to the security clearance office + the
+// building pass office. Recipients are configurable server-side via
+// SECURITY_CLEARANCE_EMAIL / BUILDING_PASS_EMAIL function secrets;
+// each function has a sensible default so the demo works out of the box.
+async function sendSecurityClearanceEmail(payload) {
+  if (!hasSupabase) return { ok: false, error: 'Supabase not configured' };
+  const { data, error } = await supabase.functions.invoke('send-security-clearance-email', {
+    body: payload,
+  });
+  if (error) {
+    console.error('[store] send-security-clearance-email invoke failed:', error);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, data };
+}
+
+async function sendBuildingPassEmail(payload) {
+  if (!hasSupabase) return { ok: false, error: 'Supabase not configured' };
+  const { data, error } = await supabase.functions.invoke('send-building-pass-email', {
+    body: payload,
+  });
+  if (error) {
+    console.error('[store] send-building-pass-email invoke failed:', error);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, data };
+}
+
 export async function updateRequest(id, patch) {
   if (hasSupabase) {
     const row = {};
@@ -906,12 +934,35 @@ export async function approveSubmission(requestId, { manager, comments, fieldCha
     });
     if (auditErr) console.warn('[store] approvals insert failed:', auditErr);
 
+    // Post-approval notifications — all fire-and-forget. If any of these
+    // fail (Resend down, key missing, recipient bounced) the approval
+    // itself is still durable; the manager can re-trigger from logs.
+    const candidateName = [request.givenName, request.familyName].filter(Boolean).join(' ');
+    const commonPayload = {
+      candidateEmail: request.email,
+      candidateName,
+      reference,
+      managerName: manager.name,
+      managerEmail: manager.email,
+      approvedAt,
+    };
+
     sendConfirmationEmail({
       email: request.email,
       reference,
       givenName: request.givenName,
       familyName: request.familyName,
     }).catch((err) => console.warn('[store] confirmation email failed (non-blocking):', err));
+
+    sendSecurityClearanceEmail({
+      ...commonPayload,
+      security: submission.securityClearance || {},
+    }).catch((err) => console.warn('[store] security clearance email failed (non-blocking):', err));
+
+    sendBuildingPassEmail({
+      ...commonPayload,
+      building: submission.buildingPass || {},
+    }).catch((err) => console.warn('[store] building pass email failed (non-blocking):', err));
 
     return { reference, approvedAt };
   }
@@ -1110,6 +1161,11 @@ export function markAllNotificationsRead() {
   const all = listNotifications().map((n) => ({ ...n, read: true }));
   write(KEY_NOTIFS, all);
 }
+
+// -----------------------------------------------------------------
+// Seed -- mock-mode only.
+// -----------------------------------------------------------------
+
 
 // -----------------------------------------------------------------
 // Seed -- mock-mode only.
