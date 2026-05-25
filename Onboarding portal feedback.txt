@@ -1,0 +1,42 @@
+Onboarding portal feedback 
+ 
+remove HR dashboard tab
+ 
+Link - if started, change wording from 'begin'
+ 
+HR creates record > goes to manager first to populate before magic link
+ 
+Clearance form -
+ 
+CSID (if known) - add
+Aust citizen - remove
+employ type - prefill
+APS level - prefill
+ 
+Building pass
+ 
+Question - 
+can preferred name be added to pass or must be legal
+ 
+New view for security clearance - Per Sec team
+ 
+Request forms
+ 
+Renew building pass
+Change of sec clearance
+ 
+COI
+ 
+Related to providers or other entities
+Look up to myid for providers
+ 
+Mud map
+ 
+Manager who is doing hiring
+New APS starter
+New Contractor 
+Contractor to APS
+
+Sorry my notes aren't great - the request forms should its own tab or maybe the landing page
+ 
+Can we do it like OneID with boxes or something with 'start a new HR request' , 'submit a change in sec clearance', 'Renew or update building pass'? And only show the HR one if you have that access? - not for the demo 
