@@ -8,14 +8,17 @@ import AuthLanding from './pages/candidate/AuthLanding';
 import OnboardingForm from './pages/candidate/OnboardingForm';
 import Confirmation from './pages/candidate/Confirmation';
 import ManagerDashboard from './pages/manager/Dashboard';
+import PrepareSubmission from './pages/manager/PrepareSubmission';
 import ReviewSubmission from './pages/manager/ReviewSubmission';
+import SecurityClearances from './pages/security/Clearances';
 import SelfService from './pages/me/SelfService';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ROLES, useUserRole } from './lib/roles';
 
 const HR_ONLY = [ROLES.HR_ADMIN];
 const HR_OR_MANAGER = [ROLES.HR_ADMIN, ROLES.MANAGER];
-const ANY_STAFF = [ROLES.HR_ADMIN, ROLES.MANAGER, ROLES.END_USER];
+const HR_OR_PSO = [ROLES.HR_ADMIN, ROLES.PSO];
+const ANY_STAFF = [ROLES.HR_ADMIN, ROLES.MANAGER, ROLES.PSO, ROLES.END_USER];
 
 // Resolve "/" to the role-appropriate landing page. Wrapped in
 // ProtectedRoute so the user is signed in before we read their role.
@@ -47,7 +50,11 @@ export default function App() {
 
         {/* Manager (or HR Admin) */}
         <Route path="/manager/dashboard" element={<ProtectedRoute requiredRoles={HR_OR_MANAGER}><ManagerDashboard /></ProtectedRoute>} />
+        <Route path="/manager/prepare/:id" element={<ProtectedRoute requiredRoles={HR_OR_MANAGER}><PrepareSubmission /></ProtectedRoute>} />
         <Route path="/manager/review/:id" element={<ProtectedRoute requiredRoles={HR_OR_MANAGER}><ReviewSubmission /></ProtectedRoute>} />
+
+        {/* Personal Security Officer (or HR Admin) */}
+        <Route path="/security/clearances" element={<ProtectedRoute requiredRoles={HR_OR_PSO}><SecurityClearances /></ProtectedRoute>} />
 
         {/* Any authenticated staff member with a role */}
         <Route path="/me" element={<ProtectedRoute requiredRoles={ANY_STAFF}><SelfService /></ProtectedRoute>} />
@@ -57,7 +64,7 @@ export default function App() {
         <Route path="/candidate/form" element={<OnboardingForm />} />
         <Route path="/candidate/done" element={<Confirmation />} />
 
-        {/* Anything else → role-appropriate home */}
+        {/* Anything else -> role-appropriate home */}
         <Route
           path="*"
           element={

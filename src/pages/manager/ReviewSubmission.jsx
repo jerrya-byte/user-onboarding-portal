@@ -453,12 +453,8 @@ function SecurityClearanceEditor({ state, onChange }) {
         <Field label="Date of birth">
           <TextInput type="date" value={state.dob || ''} onChange={set('dob')} />
         </Field>
-        <Field label="Australian Citizen">
-          <SelectInput value={state.australianCitizen || ''} onChange={set('australianCitizen')}>
-            <option value="">— Select —</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </SelectInput>
+        <Field label="CSID">
+          <TextInput value={state.csid || ''} onChange={set('csid')} />
         </Field>
       </div>
       <Field label="Mobile number">

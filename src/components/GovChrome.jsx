@@ -132,7 +132,7 @@ const navItemClass = ({ isActive }) => NAV_ITEM_CLS + ' ' + (isActive ? NAV_ACTI
 // roles, not the page they happen to be on -- which is what makes
 // the "Home" link reliably take a Manager to /manager/dashboard, etc.
 function RoleNav() {
-  const { isHRAdmin, isManager, isEndUser, homePath } = useUserRole();
+  const { isHRAdmin, isManager, isPSO, isEndUser, homePath } = useUserRole();
   return (
     <nav aria-label="Sections" className="bg-navy-light px-8 flex gap-0.5 overflow-x-auto">
       <NavLink to={homePath} end className={navItemClass}>Home</NavLink>
@@ -140,7 +140,6 @@ function RoleNav() {
       {isHRAdmin && (
         <>
           <NavLink to="/hr/new" className={navItemClass}>HR &middot; Submit Email</NavLink>
-          <NavLink to="/hr/dashboard" className={navItemClass}>HR &middot; Dashboard</NavLink>
           <NavLink to="/hr/identities" className={navItemClass}>HR &middot; Identities</NavLink>
           <NavLink to="/hr/termination" className={navItemClass}>HR &middot; Termination</NavLink>
           <ReissueNavLink />
@@ -151,7 +150,11 @@ function RoleNav() {
         <NavLink to="/manager/dashboard" className={navItemClass}>Manager &middot; Approvals</NavLink>
       )}
 
-      {(isEndUser || isManager || isHRAdmin) && (
+      {(isPSO || isHRAdmin) && (
+        <NavLink to="/security/clearances" className={navItemClass}>Security &middot; Clearances</NavLink>
+      )}
+
+      {(isEndUser || isManager || isPSO || isHRAdmin) && (
         <NavLink to="/me" className={navItemClass}>My Details</NavLink>
       )}
     </nav>

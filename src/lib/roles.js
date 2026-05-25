@@ -22,27 +22,30 @@ import { useAccount, useMsal } from '@azure/msal-react';
 export const ROLES = Object.freeze({
   HR_ADMIN: 'HR_ADMIN',
   MANAGER:  'MANAGER',
+  PSO:      'PSO',
   END_USER: 'END_USER',
 });
 
 const GROUP_HR_ADMINS = (import.meta.env.VITE_GROUP_HR_ADMINS || '').trim();
 const GROUP_MANAGERS  = (import.meta.env.VITE_GROUP_MANAGERS  || '').trim();
+const GROUP_PSO       = (import.meta.env.VITE_GROUP_PSO       || '').trim();
 const GROUP_END_USERS = (import.meta.env.VITE_GROUP_END_USERS || '').trim();
 
 // True when no group GUIDs are configured at all — RBAC is effectively
 // disabled and the app falls back to its pre-RBAC behaviour.
 export const RBAC_DISABLED =
-  !GROUP_HR_ADMINS && !GROUP_MANAGERS && !GROUP_END_USERS;
+  !GROUP_HR_ADMINS && !GROUP_MANAGERS && !GROUP_PSO && !GROUP_END_USERS;
 
 // Default landing page per role. HR_ADMIN wins if a user is in multiple
 // groups, since they have the broadest access.
 const ROLE_HOME = {
-  [ROLES.HR_ADMIN]: '/hr/dashboard',
+  [ROLES.HR_ADMIN]: '/hr/identities',
   [ROLES.MANAGER]:  '/manager/dashboard',
+  [ROLES.PSO]:      '/security/clearances',
   [ROLES.END_USER]: '/me',
 };
 
-const PRIORITY = [ROLES.HR_ADMIN, ROLES.MANAGER, ROLES.END_USER];
+const PRIORITY = [ROLES.HR_ADMIN, ROLES.MANAGER, ROLES.PSO, ROLES.END_USER];
 
 function rolesFromGroups(groupIds) {
   if (!Array.isArray(groupIds)) return [];
@@ -50,6 +53,7 @@ function rolesFromGroups(groupIds) {
   const out = [];
   if (GROUP_HR_ADMINS && set.has(GROUP_HR_ADMINS.toLowerCase())) out.push(ROLES.HR_ADMIN);
   if (GROUP_MANAGERS  && set.has(GROUP_MANAGERS.toLowerCase()))  out.push(ROLES.MANAGER);
+  if (GROUP_PSO       && set.has(GROUP_PSO.toLowerCase()))       out.push(ROLES.PSO);
   if (GROUP_END_USERS && set.has(GROUP_END_USERS.toLowerCase())) out.push(ROLES.END_USER);
   return out;
 }
@@ -73,7 +77,7 @@ export function useUserRole() {
   const groups = claims.groups || [];
 
   const roles = RBAC_DISABLED
-    ? [ROLES.HR_ADMIN, ROLES.MANAGER, ROLES.END_USER] // dev mode = full access
+    ? [ROLES.HR_ADMIN, ROLES.MANAGER, ROLES.PSO, ROLES.END_USER] // dev mode = full access
     : rolesFromGroups(groups);
 
   const primary = PRIORITY.find((r) => roles.includes(r)) || null;
@@ -84,6 +88,7 @@ export function useUserRole() {
     primary,
     isHRAdmin: roles.includes(ROLES.HR_ADMIN),
     isManager: roles.includes(ROLES.MANAGER),
+    isPSO:     roles.includes(ROLES.PSO),
     isEndUser: roles.includes(ROLES.END_USER),
     hasAccess: roles.length > 0,
     homePath: primary ? ROLE_HOME[primary] : '/no-access',

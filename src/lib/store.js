@@ -308,6 +308,57 @@ const SELF_SERVICE_ALLOWED_FIELDS = new Set([
   'relationship',
 ]);
 
+// Personal Security team view -- list all completed identities with
+// their security-clearance attributes pulled together (from
+// identity_records + the related form_submissions.security_clearance
+// jsonb so the CSID and previous-sponsor details are surfaced).
+export async function listSecurityClearances() {
+  if (hasSupabase) {
+    const { data, error } = await supabase
+      .from('identity_records')
+      .select('*, onboarding_requests!inner(id, form_submissions(security_clearance))')
+      .order('submitted_at', { ascending: false });
+    if (error) {
+      console.error('[store] listSecurityClearances failed:', error);
+      // Fall back to identity_records alone -- still useful, just missing
+      // the CSID / sponsor jsonb fields.
+      const { data: irOnly, error: irErr } = await supabase
+        .from('identity_records')
+        .select('*')
+        .order('submitted_at', { ascending: false });
+      if (irErr) return [];
+      return (irOnly || []).map((r) => ({
+        ...fromIdentityRecord(r),
+        scDetails: {},
+      }));
+    }
+    return (data || []).map((r) => ({
+      ...fromIdentityRecord(r),
+      scDetails: r.onboarding_requests?.form_submissions?.security_clearance || {},
+    }));
+  }
+
+  // Mock-mode: pull from in-memory records + draftSubmission.
+  const all = read(KEY_REQUESTS, []);
+  return all
+    .filter((r) => r.submission)
+    .map((r) => ({
+      id: r.id,
+      requestId: r.id,
+      reference: r.submission.reference,
+      submittedAt: r.submission.submittedAt,
+      givenName: r.givenName,
+      familyName: r.familyName,
+      email: r.email,
+      position: r.position,
+      level: r.level,
+      division: r.division,
+      managerName: r.managerName,
+      securityClearance: r.submission.securityClearance,
+      scDetails: r.draftSubmission?.securityClearance || {},
+    }));
+}
+
 export async function getMyIdentityRecord(email) {
   if (!email) return null;
   if (hasSupabase) {
@@ -436,6 +487,10 @@ export async function listIdentityRecords() {
     }));
 }
 
+// Create a new onboarding request. Per the demo flow update, HR no
+// longer triggers the candidate's magic link directly. Instead the
+// request lands in `pending_manager_input` and the reporting manager
+// pre-fills role information before sendLinkToCandidate() fires.
 export async function createRequest(input, { validityHours = 72 } = {}) {
   const expiresAtMs = Date.now() + validityHours * 60 * 60 * 1000;
   const inviteCode = generateInviteCode();
@@ -443,8 +498,10 @@ export async function createRequest(input, { validityHours = 72 } = {}) {
   if (hasSupabase) {
     const row = {
       ...toSupabase(input),
-      status: 'link_sent',
-      link_sent_at: now(),
+      status: 'pending_manager_input',
+      // expires_at is set now so the link, once issued, has a
+      // 72h window; link_sent_at is filled in later when the link
+      // actually goes out.
       expires_at: new Date(expiresAtMs).toISOString(),
       invite_code: inviteCode,
       reissue_history: [],
@@ -459,20 +516,22 @@ export async function createRequest(input, { validityHours = 72 } = {}) {
       throw new Error(`Could not save request: ${error.message}`);
     }
     const request = fromSupabase(data);
-    const emailResult = await sendMagicLink(request);
+    // Notify the manager (best-effort) that the request awaits their
+    // pre-fill. The actual candidate magic link is deferred.
     return {
       request,
-      magicLinkEmailSent: emailResult.ok,
-      emailError: emailResult.error,
+      magicLinkEmailSent: false,
+      emailError: null,
+      awaitingManagerInput: true,
     };
   }
 
   const id = uuid();
   const request = {
     id,
-    status: 'link_sent',
+    status: 'pending_manager_input',
     createdAt: now(),
-    linkSentAt: now(),
+    linkSentAt: null,
     expiresAt: new Date(expiresAtMs).toISOString(),
     inviteCode,
     magicToken: buildMagicLinkToken(id, input.email, expiresAtMs),
@@ -484,12 +543,114 @@ export async function createRequest(input, { validityHours = 72 } = {}) {
   all.unshift(request);
   write(KEY_REQUESTS, all);
   addNotification({
-    kind: 'link_sent',
-    title: `Link sent — ${input.givenName} ${input.familyName}`,
-    body: 'Onboarding email delivered to candidate (prototype — no real email).',
+    kind: 'pending_manager_input',
+    title: `Manager input required — ${input.givenName} ${input.familyName}`,
+    body: `Reporting manager (${input.managerEmail || 'unknown'}) needs to pre-fill role information before the candidate is invited.`,
     requestId: id,
   });
-  return { request, magicLinkEmailSent: false, emailError: null };
+  return { request, magicLinkEmailSent: false, emailError: null, awaitingManagerInput: true };
+}
+
+// Manager finishes their pre-fill step and releases the request to
+// the candidate. Persists the manager-supplied role attributes into
+// form_submissions, flips onboarding_requests.status → link_sent,
+// then fires the magic link email.
+//
+// `prefill` shape:
+//   {
+//     securityClearance: { apsLevel },
+//     buildingPass: {
+//       employmentType, contractStartDate, contractEndDate,
+//       buildingAddress, daytimeAccess, publicHolidayAccess,
+//       managerSignDate,
+//     }
+//   }
+export async function sendLinkToCandidate(requestId, prefill = {}) {
+  if (!requestId) throw new Error('requestId is required');
+
+  if (hasSupabase) {
+    // Seed the form_submissions row with the manager's pre-fill so the
+    // candidate sees those fields as already-completed when they open
+    // the magic link.
+    const subPatch = {
+      request_id: requestId,
+      status: 'draft',
+      current_section: 'personal',
+    };
+    if (prefill.securityClearance) subPatch.security_clearance = prefill.securityClearance;
+    if (prefill.buildingPass)      subPatch.building_pass = prefill.buildingPass;
+
+    const { error: subErr } = await supabase
+      .from('form_submissions')
+      .upsert(subPatch, { onConflict: 'request_id' });
+    if (subErr) {
+      console.error('[store] sendLinkToCandidate upsert failed:', subErr);
+      throw new Error(`Could not save manager pre-fill: ${subErr.message}`);
+    }
+
+    // Flip request → link_sent and stamp link_sent_at.
+    const linkSentAt = now();
+    const updated = await updateRequest(requestId, { status: 'link_sent', linkSentAt });
+    if (!updated) throw new Error('Request not found.');
+
+    // Fire the magic link email (same flow as before, just deferred).
+    const emailResult = await sendMagicLink(updated);
+    return {
+      request: updated,
+      magicLinkEmailSent: emailResult.ok,
+      emailError: emailResult.error,
+    };
+  }
+
+  // Mock mode
+  const all = read(KEY_REQUESTS, []);
+  const idx = all.findIndex((r) => r.id === requestId);
+  if (idx < 0) throw new Error('Request not found');
+  const prev = all[idx].draftSubmission || {
+    id: uuid(), requestId, status: 'draft', currentSection: 'personal',
+    personal: {}, securityClearance: {}, buildingPass: {}, conflictOfInterest: {},
+    createdAt: now(),
+  };
+  all[idx] = {
+    ...all[idx],
+    status: 'link_sent',
+    linkSentAt: now(),
+    draftSubmission: {
+      ...prev,
+      securityClearance: { ...(prev.securityClearance || {}), ...(prefill.securityClearance || {}) },
+      buildingPass:      { ...(prev.buildingPass      || {}), ...(prefill.buildingPass      || {}) },
+    },
+  };
+  write(KEY_REQUESTS, all);
+  addNotification({
+    kind: 'link_sent',
+    title: `Link sent — ${all[idx].givenName} ${all[idx].familyName}`,
+    body: 'Magic link issued to candidate after manager pre-fill (prototype — no real email).',
+    requestId,
+  });
+  return { request: all[idx], magicLinkEmailSent: false, emailError: null };
+}
+
+// List requests in 'pending_manager_input' optionally scoped to a manager.
+export async function listPendingManagerInput(managerEmail) {
+  if (hasSupabase) {
+    let query = supabase
+      .from('onboarding_requests')
+      .select('*')
+      .eq('status', 'pending_manager_input')
+      .order('created_at', { ascending: false });
+    if (managerEmail) query = query.ilike('manager_email', managerEmail);
+    const { data, error } = await query;
+    if (error) {
+      console.error('[store] listPendingManagerInput failed:', error);
+      return [];
+    }
+    return (data || []).map(fromSupabase);
+  }
+  const all = read(KEY_REQUESTS, []);
+  return all
+    .filter((r) => r.status === 'pending_manager_input')
+    .filter((r) => !managerEmail || r.managerEmail?.toLowerCase() === managerEmail.toLowerCase());
 }
 
 async function sendMagicLink(request) {
@@ -1184,44 +1345,11 @@ export async function seedIfEmpty() {
       managerPosition: 'Director, Data Analytics', location: 'Sydney NSW',
       status: 'completed',
     },
-    {
-      givenName: 'James',    familyName: 'Nguyen',
-      email: 'james.nguyen@agency.gov.au', position: 'Senior Policy Adviser', level: 'APS 6',
-      division: 'Digital Transformation', commencement: '2026-04-14',
-      managerName: 'Dr. Michelle Park', managerEmail: 'm.park@agency.gov.au',
-      managerPosition: 'Director, Digital Policy', location: 'Canberra ACT',
-      status: 'link_sent',
-    },
-    {
-      givenName: 'Aisha',    familyName: 'Okonkwo',
-      email: 'a.okonkwo@agency.gov.au', position: 'Communications Officer', level: 'APS 4',
-      division: 'Communications', commencement: '2026-04-21',
-      managerName: 'Rebecca Liu', managerEmail: 'r.liu@agency.gov.au',
-      managerPosition: 'Director, Public Affairs', location: 'Melbourne VIC',
-      status: 'link_sent',
-    },
-    {
-      givenName: 'Michael',  familyName: 'Torres',
-      email: 'm.torres@agency.gov.au', position: 'ICT Security Analyst', level: 'APS 6',
-      division: 'Cyber Security Operations', commencement: '2026-04-07',
-      managerName: 'Brendan Walsh', managerEmail: 'b.walsh@agency.gov.au',
-      managerPosition: 'Director, Cyber Operations', location: 'Canberra ACT',
-      status: 'expired',
-      __backdate: 1000 * 60 * 60 * 24 * 7,
-    },
   ];
 
   for (const s of sample) {
     const { request } = await createRequest(s, { validityHours: 72 });
-    if (s.__backdate) {
-      const ts = Date.now() - s.__backdate;
-      await updateRequest(request.id, {
-        createdAt: new Date(ts).toISOString(),
-        linkSentAt: new Date(ts).toISOString(),
-        expiresAt: new Date(ts + 72 * 3600 * 1000).toISOString(),
-        status: 'expired',
-      });
-    } else if (s.status) {
+    if (s.status) {
       await updateRequest(request.id, { status: s.status });
     }
     if (s.status === 'completed') {

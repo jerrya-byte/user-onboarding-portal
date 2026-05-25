@@ -1,16 +1,17 @@
 # Access control with EntraID security groups
 
-The portal supports three roles, mapped to three EntraID security groups:
+The portal supports four roles, mapped to four EntraID security groups:
 
 | Role | Group name (suggested) | What they can do |
 |---|---|---|
-| **HR Admins** | `IDP-Onboarding-HRAdmins` | Full control — create requests, see all candidates and identities, terminate, plus everything Managers and End Users can do. |
-| **Managers** | `IDP-Onboarding-Managers` | Approve / edit / reject candidate submissions assigned to them, and update their own self-service details. |
+| **HR Admins** | `IDP-Onboarding-HRAdmins` | Full control — create requests, see all candidates and identities, terminate, plus everything Managers, PSOs and End Users can do. |
+| **Managers** | `IDP-Onboarding-Managers` | Two stages: (1) pre-fill role information when HR creates a new request, which releases the magic link to the candidate; (2) review, edit, approve / reject candidate submissions assigned to them. |
+| **PSOs (Personal Security Officers)** | `IDP-Onboarding-PSO` | Read-only register of every onboarded identity's security clearance information (CSID, clearance level, previous sponsor). |
 | **End Users** | `IDP-Onboarding-EndUsers` | Self-service only — update their own family name, mobile, and emergency contact details. |
 
-Higher-privilege roles **inherit** lower-privilege capabilities, so a person who only needs to be in one group is fine. (HR Admins can also use the Manager and Me pages; Managers can also use the Me page.)
+HR Admins also have access to the Manager queue, the Security Clearances register, and the End User self-service page. Putting a user in HR Admins covers everything; PSO/Manager/End User groups exist for least-privilege assignments.
 
-If none of the three group env vars are set in Vercel, the app falls back to its **pre-RBAC behaviour** — any signed-in Microsoft user has full access. This means you can deploy the code changes first and add RBAC by setting env vars later, without breaking anything.
+If none of the four group env vars are set in Vercel, the app falls back to its **pre-RBAC behaviour** — any signed-in Microsoft user has full access. This means you can deploy the code changes first and add RBAC by setting env vars later, without breaking anything.
 
 Total time: **~15 minutes** the first time, plus ~2 minutes per user thereafter.
 
@@ -27,8 +28,9 @@ Total time: **~15 minutes** the first time, plus ~2 minutes per user thereafter.
    - **Group description:** `Full access to the Identity Onboarding Portal — HR administrators.`
    - **Membership type:** `Assigned`
 5. Under **Members**, click **No members selected** → add the HR staff who should have full access → click **Select** → **Create**.
-6. **Repeat steps 3–5 twice more** to create:
+6. **Repeat steps 3–5 three more times** to create:
    - `IDP-Onboarding-Managers` — add the reporting managers who will approve submissions.
+   - `IDP-Onboarding-PSO` — add the Personal Security Officers who need access to the security clearance register.
    - `IDP-Onboarding-EndUsers` — add all employees who should be able to self-service their own details.
 
 > **Tip — overlapping membership.** A reporting manager who also has self-service needs only has to be in the `Managers` group; the app grants End User capabilities to anyone with a higher role. Same for HR Admins.
@@ -42,9 +44,9 @@ The app identifies groups by their Object ID (a GUID like `12345678-aaaa-bbbb-cc
 1. **Groups** → **All groups** → click into `IDP-Onboarding-HRAdmins`.
 2. On the **Overview** page, find the **Object ID** field at the top.
 3. Click the **copy** icon next to it. Paste it somewhere safe (Notepad is fine) and label it "HR Admins".
-4. Click back, then repeat for `IDP-Onboarding-Managers` ("Managers") and `IDP-Onboarding-EndUsers` ("End Users").
+4. Click back, then repeat for `IDP-Onboarding-Managers` ("Managers"), `IDP-Onboarding-PSO` ("PSO"), and `IDP-Onboarding-EndUsers` ("End Users").
 
-You should end up with three labelled GUIDs.
+You should end up with four labelled GUIDs.
 
 ---
 
@@ -93,6 +95,7 @@ Only members of those groups can now sign into the app at all. Anyone else gets 
 |---|---|
 | `VITE_GROUP_HR_ADMINS` | the HR Admins Object ID from Step 2 |
 | `VITE_GROUP_MANAGERS` | the Managers Object ID from Step 2 |
+| `VITE_GROUP_PSO` | the PSO Object ID from Step 2 |
 | `VITE_GROUP_END_USERS` | the End Users Object ID from Step 2 |
 
 3. Go to the **Deployments** tab → click the three-dot menu next to the latest deployment → **Redeploy**. (Vite bakes env vars in at build time, so a redeploy is required for them to take effect.)

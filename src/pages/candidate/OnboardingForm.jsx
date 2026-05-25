@@ -166,7 +166,7 @@ function FormView({ req, initialDraft, isPreview }) {
       legalSurname:           saved.legalSurname            ?? (req.familyName || ''),
       legalFirstName:         saved.legalFirstName          ?? (req.givenName  || ''),
       dob:                    saved.dob                     ?? (savedPersonal.dob    || ''),
-      australianCitizen:      saved.australianCitizen       ?? '',
+      csid:                   saved.csid                    ?? '',
       mobile:                 saved.mobile                  ?? (savedPersonal.mobile || ''),
       positionTitle:          saved.positionTitle           ?? (req.position   || ''),
       apsLevel:               saved.apsLevel                ?? (req.level      || ''),
@@ -211,6 +211,25 @@ function FormView({ req, initialDraft, isPreview }) {
     declaration: false,
     ...(initialDraft?.conflictOfInterest || {}),
   }));
+
+  // Snapshot of which fields the manager pre-filled (taken at mount time).
+  // The candidate sees these as read-only — they can't override the
+  // manager's role decisions.
+  const prefilledFields = (() => {
+    const sc = initialDraft?.securityClearance || {};
+    const bp = initialDraft?.buildingPass || {};
+    return {
+      // Security Clearance:
+      apsLevel: !!sc.apsLevel,
+      // Building Pass:
+      employmentType:     !!bp.employmentType,
+      contractStartDate:  !!bp.contractStartDate,
+      contractEndDate:    !!bp.contractEndDate,
+      buildingAddress:    !!bp.buildingAddress,
+      daytimeAccess:      !!bp.daytimeAccess,
+      publicHolidayAccess:!!bp.publicHolidayAccess,
+    };
+  })();
 
   const [currentKey, setCurrentKey] = useState(
     initialDraft?.currentSection &&
@@ -262,7 +281,7 @@ function FormView({ req, initialDraft, isPreview }) {
       if (!securityClearance.legalSurname?.trim()) e.legalSurname = 'Required';
       if (!securityClearance.legalFirstName?.trim()) e.legalFirstName = 'Required';
       if (!securityClearance.dob) e.dob = 'Required';
-      if (!securityClearance.australianCitizen) e.australianCitizen = 'Required';
+      // CSID is optional ("If known").
       if (!securityClearance.mobile?.trim()) e.mobile = 'Required';
       else if (!/^\d{10}$/.test(securityClearance.mobile.replace(/[\s-]/g, '')))
         e.mobile = 'Mobile must be 10 digits';
@@ -461,6 +480,7 @@ function FormView({ req, initialDraft, isPreview }) {
                     state={securityClearance}
                     onChange={setSecurityClearance}
                     errOf={errOf}
+                    prefilledFields={prefilledFields}
                   />
                 )}
                 {currentKey === 'building_pass' && (
@@ -468,6 +488,7 @@ function FormView({ req, initialDraft, isPreview }) {
                     state={buildingPass}
                     onChange={setBuildingPass}
                     errOf={errOf}
+                    prefilledFields={prefilledFields}
                   />
                 )}
                 {currentKey === 'conflict_of_interest' && (
@@ -617,7 +638,7 @@ function PersonalSection({ req, state, onChange, errOf }) {
   );
 }
 
-function SecurityClearanceSection({ state, onChange, errOf }) {
+function SecurityClearanceSection({ state, onChange, errOf, prefilledFields = {} }) {
   const set = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.value }));
   return (
     <Card
@@ -651,19 +672,14 @@ function SecurityClearanceSection({ state, onChange, errOf }) {
           />
         </Field>
         <Field
-          label="Australian Citizen"
-          required
-          error={errOf('australianCitizen')}
+          label="CSID"
+          hint="Departmental Customer Service ID, if known. Leave blank if you don't have one yet."
         >
-          <SelectInput
-            value={state.australianCitizen || ''}
-            onChange={set('australianCitizen')}
-            error={!!errOf('australianCitizen')}
-          >
-            <option value="">— Select —</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </SelectInput>
+          <TextInput
+            value={state.csid || ''}
+            onChange={set('csid')}
+            placeholder="If known"
+          />
         </Field>
       </div>
       <Field
@@ -695,16 +711,22 @@ function SecurityClearanceSection({ state, onChange, errOf }) {
         <Field
           label="APS level or equivalent"
           required
+          prefilled={prefilledFields.apsLevel}
+          prefillNote={prefilledFields.apsLevel ? 'Set by your reporting manager' : undefined}
           error={errOf('apsLevel')}
         >
-          <SelectInput
-            value={state.apsLevel || ''}
-            onChange={set('apsLevel')}
-            error={!!errOf('apsLevel')}
-          >
-            <option value="">— Select —</option>
-            {APS_LEVELS.map((l) => <option key={l}>{l}</option>)}
-          </SelectInput>
+          {prefilledFields.apsLevel ? (
+            <TextInput prefilled value={state.apsLevel || ''} readOnly />
+          ) : (
+            <SelectInput
+              value={state.apsLevel || ''}
+              onChange={set('apsLevel')}
+              error={!!errOf('apsLevel')}
+            >
+              <option value="">— Select —</option>
+              {APS_LEVELS.map((l) => <option key={l}>{l}</option>)}
+            </SelectInput>
+          )}
         </Field>
       </div>
 
@@ -752,7 +774,7 @@ function SecurityClearanceSection({ state, onChange, errOf }) {
   );
 }
 
-function BuildingPassSection({ state, onChange, errOf }) {
+function BuildingPassSection({ state, onChange, errOf, prefilledFields = {} }) {
   const set = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.value }));
   const setBool = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.checked }));
   const showContractDates = CONTRACT_DATE_TYPES.has(state.employmentType);
@@ -766,35 +788,37 @@ function BuildingPassSection({ state, onChange, errOf }) {
         <TextInput prefilled value="Yes" readOnly />
       </Field>
       <div className="gov-field-row">
-        <Field label="First name" required error={errOf('firstName')}>
-          <TextInput
-            value={state.firstName || ''}
-            onChange={set('firstName')}
-            error={!!errOf('firstName')}
-          />
+        <Field label="First name" required prefilled prefillNote="Pre-filled from HR record">
+          <TextInput prefilled value={state.firstName || ''} readOnly />
         </Field>
-        <Field label="Other given name(s)">
-          <TextInput value={state.otherGivenNames || ''} onChange={set('otherGivenNames')} />
+        <Field label="Other given name(s)" prefilled>
+          <TextInput prefilled value={state.otherGivenNames || ''} readOnly />
         </Field>
       </div>
-      <Field label="SURNAME" required error={errOf('surname')}>
-        <TextInput
-          value={state.surname || ''}
-          onChange={set('surname')}
-          error={!!errOf('surname')}
-        />
+      <Field label="SURNAME" required prefilled prefillNote="Pre-filled from HR record">
+        <TextInput prefilled value={state.surname || ''} readOnly />
       </Field>
 
       <SectionSep>Section 2 — Employment Type</SectionSep>
-      <Field label="Employment type" required error={errOf('employmentType')}>
-        <SelectInput
-          value={state.employmentType || ''}
-          onChange={set('employmentType')}
-          error={!!errOf('employmentType')}
-        >
-          <option value="">— Select —</option>
-          {EMPLOYMENT_TYPES.map((t) => <option key={t}>{t}</option>)}
-        </SelectInput>
+      <Field
+        label="Employment type"
+        required
+        prefilled={prefilledFields.employmentType}
+        prefillNote={prefilledFields.employmentType ? 'Set by your reporting manager' : undefined}
+        error={errOf('employmentType')}
+      >
+        {prefilledFields.employmentType ? (
+          <TextInput prefilled value={state.employmentType || ''} readOnly />
+        ) : (
+          <SelectInput
+            value={state.employmentType || ''}
+            onChange={set('employmentType')}
+            error={!!errOf('employmentType')}
+          >
+            <option value="">— Select —</option>
+            {EMPLOYMENT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </SelectInput>
+        )}
       </Field>
       <div className="gov-field-row">
         <Field label="Start date" prefilled prefillNote="Pre-filled from HR commencement date">
@@ -810,19 +834,35 @@ function BuildingPassSection({ state, onChange, errOf }) {
             Contract dates are required for Labour Hire, Non-Ongoing and External – Other employment types.
           </p>
           <div className="gov-field-row">
-            <Field label="Contract start date" required error={errOf('contractStartDate')}>
+            <Field
+              label="Contract start date"
+              required
+              prefilled={prefilledFields.contractStartDate}
+              prefillNote={prefilledFields.contractStartDate ? 'Set by your reporting manager' : undefined}
+              error={errOf('contractStartDate')}
+            >
               <TextInput
                 type="date"
                 value={state.contractStartDate || ''}
-                onChange={set('contractStartDate')}
+                onChange={prefilledFields.contractStartDate ? undefined : set('contractStartDate')}
+                readOnly={prefilledFields.contractStartDate}
+                prefilled={prefilledFields.contractStartDate}
                 error={!!errOf('contractStartDate')}
               />
             </Field>
-            <Field label="Contract finish date" required error={errOf('contractEndDate')}>
+            <Field
+              label="Contract finish date"
+              required
+              prefilled={prefilledFields.contractEndDate}
+              prefillNote={prefilledFields.contractEndDate ? 'Set by your reporting manager' : undefined}
+              error={errOf('contractEndDate')}
+            >
               <TextInput
                 type="date"
                 value={state.contractEndDate || ''}
-                onChange={set('contractEndDate')}
+                onChange={prefilledFields.contractEndDate ? undefined : set('contractEndDate')}
+                readOnly={prefilledFields.contractEndDate}
+                prefilled={prefilledFields.contractEndDate}
                 error={!!errOf('contractEndDate')}
               />
             </Field>
@@ -1090,7 +1130,7 @@ function ReviewSection({ req, personal, securityClearance, buildingPass, conflic
         rows={[
           ['Legal Name', dash(securityClearance.legalFirstName) + ' ' + dash(securityClearance.legalSurname)],
           ['Date of Birth', dash(securityClearance.dob)],
-          ['Australian Citizen', yesNo(securityClearance.australianCitizen)],
+          ['CSID', dash(securityClearance.csid)],
           ['Mobile Number', dash(securityClearance.mobile)],
           ['Position Title', dash(securityClearance.positionTitle)],
           ['APS Level', dash(securityClearance.apsLevel)],
