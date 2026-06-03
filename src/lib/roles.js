@@ -39,7 +39,7 @@ export const RBAC_DISABLED =
 // Default landing page per role. HR_ADMIN wins if a user is in multiple
 // groups, since they have the broadest access.
 const ROLE_HOME = {
-  [ROLES.HR_ADMIN]: '/hr/identities',
+  [ROLES.HR_ADMIN]: '/hr/new',
   [ROLES.MANAGER]:  '/manager/dashboard',
   [ROLES.PSO]:      '/security/clearances',
   [ROLES.END_USER]: '/me',

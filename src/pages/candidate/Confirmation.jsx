@@ -39,12 +39,12 @@ export default function Confirmation() {
             {firstName ? `Thank you, ${firstName}` : 'Thank you'}
           </h2>
           <p className="text-base text-ink leading-relaxed max-w-[460px] mx-auto mb-2">
-            Your forms have been submitted to {req?.managerName || 'your reporting manager'} for review.
+            Welcome to the Department of Superheroes.
           </p>
           <p className="text-sm text-ink-soft max-w-[460px] mx-auto">
             {loading
               ? 'Loading confirmation…'
-              : 'Once your manager approves the submission, your identity record will be created and you will receive a confirmation email with your onboarding reference number.'}
+              : 'Your onboarding information has been received and your identity record has been created. You will receive a confirmation email shortly with your reference number.'}
           </p>
         </div>
 

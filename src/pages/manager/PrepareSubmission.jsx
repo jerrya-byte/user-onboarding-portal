@@ -34,6 +34,12 @@ const CONTRACT_DATE_TYPES = new Set([
   'Contractor/Labor Hire',
   'External – Other (ie. Trades, Technicians, Cleaners)',
 ]);
+const CLEARANCE_LEVELS = [
+  'Baseline',
+  'Negative Vetting 1 (NV1)',
+  'Negative Vetting 2 (NV2)',
+  'Positive Vetting (PV)',
+];
 
 export default function PrepareSubmission() {
   const { id } = useParams();
@@ -45,6 +51,7 @@ export default function PrepareSubmission() {
 
   const [apsLevel, setApsLevel] = useState('');
   const [employmentType, setEmploymentType] = useState('');
+  const [clearanceRequired, setClearanceRequired] = useState('');
   const [contractStartDate, setContractStartDate] = useState('');
   const [contractEndDate, setContractEndDate] = useState('');
   const [buildingAddress, setBuildingAddress] = useState('');
@@ -86,12 +93,11 @@ export default function PrepareSubmission() {
     const e = {};
     if (!apsLevel) e.apsLevel = 'Required';
     if (!employmentType) e.employmentType = 'Required';
+    if (!clearanceRequired) e.clearanceRequired = 'Required';
     if (showContractDates) {
       if (!contractStartDate) e.contractStartDate = 'Required for this employment type';
       if (!contractEndDate) e.contractEndDate = 'Required for this employment type';
     }
-    // Section 3 manager-fill fields are encouraged but not strictly required
-    // -- the manager can revise them at final approval if needed.
     return e;
   };
 
@@ -106,7 +112,7 @@ export default function PrepareSubmission() {
     setBusy(true);
     try {
       const prefill = {
-        securityClearance: { apsLevel },
+        securityClearance: { apsLevel, clearanceRequired },
         buildingPass: {
           employmentType,
           ...(showContractDates && {
@@ -198,6 +204,22 @@ export default function PrepareSubmission() {
           >
             <option value="">— Select —</option>
             {EMPLOYMENT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </SelectInput>
+        </Field>
+
+        <Field
+          label="Expected security clearance level"
+          required
+          hint="The clearance the candidate's role will require. They will see this as read-only on their form."
+          error={errOf('clearanceRequired')}
+        >
+          <SelectInput
+            value={clearanceRequired}
+            onChange={(e) => setClearanceRequired(e.target.value)}
+            error={!!errOf('clearanceRequired')}
+          >
+            <option value="">— Select —</option>
+            {CLEARANCE_LEVELS.map((c) => <option key={c}>{c}</option>)}
           </SelectInput>
         </Field>
 

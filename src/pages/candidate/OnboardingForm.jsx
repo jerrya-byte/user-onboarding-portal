@@ -220,7 +220,8 @@ function FormView({ req, initialDraft, isPreview }) {
     const bp = initialDraft?.buildingPass || {};
     return {
       // Security Clearance:
-      apsLevel: !!sc.apsLevel,
+      apsLevel:           !!sc.apsLevel,
+      clearanceRequired:  !!sc.clearanceRequired,
       // Building Pass:
       employmentType:     !!bp.employmentType,
       contractStartDate:  !!bp.contractStartDate,
@@ -265,6 +266,14 @@ function FormView({ req, initialDraft, isPreview }) {
     conflictOfInterest,
   });
 
+  // Keep the security-clearance DOB in lock-step with the Personal-section DOB,
+  // since the SC field is now shown read-only and sourced from Personal.
+  useEffect(() => {
+    if ((securityClearance.dob || '') !== (personal.dob || '')) {
+      setSecurityClearance((s) => ({ ...s, dob: personal.dob || '' }));
+    }
+  }, [personal.dob, securityClearance.dob]);
+
   const validateCurrent = () => {
     const e = {};
     if (currentKey === 'personal') {
@@ -280,8 +289,8 @@ function FormView({ req, initialDraft, isPreview }) {
     if (currentKey === 'security_clearance') {
       if (!securityClearance.legalSurname?.trim()) e.legalSurname = 'Required';
       if (!securityClearance.legalFirstName?.trim()) e.legalFirstName = 'Required';
-      if (!securityClearance.dob) e.dob = 'Required';
-      // CSID is optional ("If known").
+      // DOB is shown read-only here and carried forward from Personal,
+      // so we don't re-validate it on this section. CSID is optional.
       if (!securityClearance.mobile?.trim()) e.mobile = 'Required';
       else if (!/^\d{10}$/.test(securityClearance.mobile.replace(/[\s-]/g, '')))
         e.mobile = 'Mobile must be 10 digits';
@@ -481,6 +490,7 @@ function FormView({ req, initialDraft, isPreview }) {
                     onChange={setSecurityClearance}
                     errOf={errOf}
                     prefilledFields={prefilledFields}
+                    personal={personal}
                   />
                 )}
                 {currentKey === 'building_pass' && (
@@ -638,7 +648,7 @@ function PersonalSection({ req, state, onChange, errOf }) {
   );
 }
 
-function SecurityClearanceSection({ state, onChange, errOf, prefilledFields = {} }) {
+function SecurityClearanceSection({ state, onChange, errOf, prefilledFields = {}, personal = {} }) {
   const set = (k) => (e) => onChange((s) => ({ ...s, [k]: e.target.value }));
   return (
     <Card
@@ -663,13 +673,13 @@ function SecurityClearanceSection({ state, onChange, errOf, prefilledFields = {}
         </Field>
       </div>
       <div className="gov-field-row">
-        <Field label="Date of birth" required error={errOf('dob')}>
-          <TextInput
-            type="date"
-            value={state.dob || ''}
-            onChange={set('dob')}
-            error={!!errOf('dob')}
-          />
+        <Field
+          label="Date of birth"
+          required
+          prefilled
+          prefillNote="Carried forward from the Personal Details page"
+        >
+          <TextInput type="date" prefilled value={personal.dob || ''} readOnly />
         </Field>
         <Field
           label="CSID"
@@ -734,17 +744,23 @@ function SecurityClearanceSection({ state, onChange, errOf, prefilledFields = {}
       <Field
         label="Clearance required"
         required
-        hint="The AGSVA clearance level needed for this role."
+        prefilled={prefilledFields.clearanceRequired}
+        prefillNote={prefilledFields.clearanceRequired ? 'Set by your reporting manager' : 'The AGSVA clearance level needed for this role.'}
+        hint={prefilledFields.clearanceRequired ? undefined : 'The AGSVA clearance level needed for this role.'}
         error={errOf('clearanceRequired')}
       >
-        <SelectInput
-          value={state.clearanceRequired || ''}
-          onChange={set('clearanceRequired')}
-          error={!!errOf('clearanceRequired')}
-        >
-          <option value="">— Select —</option>
-          {CLEARANCE_REQUIRED.map((c) => <option key={c}>{c}</option>)}
-        </SelectInput>
+        {prefilledFields.clearanceRequired ? (
+          <TextInput prefilled value={state.clearanceRequired || ''} readOnly />
+        ) : (
+          <SelectInput
+            value={state.clearanceRequired || ''}
+            onChange={set('clearanceRequired')}
+            error={!!errOf('clearanceRequired')}
+          >
+            <option value="">— Select —</option>
+            {CLEARANCE_REQUIRED.map((c) => <option key={c}>{c}</option>)}
+          </SelectInput>
+        )}
       </Field>
       <Field
         label="Existing / previous clearance level"

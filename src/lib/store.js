@@ -895,15 +895,25 @@ export async function saveDraft(requestId, { sections = {}, currentSection } = {
   return updated;
 }
 
+// Final candidate submission. Per the latest workflow, the manager
+// approval step has been removed -- the candidate's submit now writes
+// directly to identity_records, marks the request 'completed', and
+// fires the candidate confirmation + security clearance + building
+// pass emails. The legacy name `submitForApproval` is kept so existing
+// call sites don't break.
 export async function submitForApproval(requestId, sections = {}) {
   if (!requestId) throw new Error('requestId is required');
   const submittedAt = now();
+  const reference = generateReference();
 
   if (hasSupabase) {
+    // 1) Persist the candidate's final section data + flip submission
+    //    status to 'approved' (no separate approval gate now).
     const patch = {
       request_id: requestId,
-      status: 'submitted',
+      status: 'approved',
       submitted_at: submittedAt,
+      approved_at: submittedAt,
       current_section: 'review',
     };
     if (sections.personal) patch.personal = sections.personal;
@@ -921,10 +931,87 @@ export async function submitForApproval(requestId, sections = {}) {
       throw new Error(`Could not submit form: ${subErr.message}`);
     }
 
-    await updateRequest(requestId, { status: 'pending_approval' });
-    return fromFormSubmission(submission);
+    // 2) Load the request so we can build the identity_records row.
+    const request = await getRequest(requestId);
+    if (!request) throw new Error('Request not found.');
+
+    const sub = fromFormSubmission(submission);
+    const p = sub?.personal || {};
+    const sc = sub?.securityClearance || {};
+    const bp = sub?.buildingPass || {};
+
+    const identityRow = {
+      request_id: requestId,
+      reference,
+      submitted_at: submittedAt,
+      onboarding_status: 'committed',
+      given_name: request.givenName,
+      family_name: request.familyName,
+      preferred_name: p.preferredName || null,
+      dob: p.dob || null,
+      email: request.email,
+      position: request.position,
+      position_number: request.positionNumber || null,
+      level: bp.apsLevel || request.level,
+      division: request.division,
+      branch: request.branch || null,
+      group_name: request.groupName || null,
+      commencement: request.commencement || null,
+      manager_name: request.managerName,
+      location: request.location,
+      mobile: p.mobile || sc.mobile || null,
+      emergency_name: p.emergencyName || null,
+      emergency_phone: p.emergencyPhone || null,
+      relationship: p.relationship || null,
+      security_clearance:
+        sc.clearanceRequired ||
+        sc.previousClearanceLevel ||
+        sc.clearanceLevel ||
+        null,
+    };
+    const { error: insertErr } = await supabase
+      .from('identity_records')
+      .insert(identityRow);
+    if (insertErr) {
+      console.error('[store] identity_records insert failed:', insertErr);
+      throw new Error(`Could not write identity record: ${insertErr.message}`);
+    }
+
+    // 3) Flip request -> completed.
+    await updateRequest(requestId, { status: 'completed', submittedAt, reference });
+
+    // 4) Fire all three emails best-effort.
+    const candidateName = [request.givenName, request.familyName].filter(Boolean).join(' ');
+    const commonPayload = {
+      candidateEmail: request.email,
+      candidateName,
+      reference,
+      managerName: request.managerName,
+      managerEmail: request.managerEmail,
+      approvedAt: submittedAt,
+    };
+
+    sendConfirmationEmail({
+      email: request.email,
+      reference,
+      givenName: request.givenName,
+      familyName: request.familyName,
+    }).catch((err) => console.warn('[store] confirmation email failed (non-blocking):', err));
+
+    sendSecurityClearanceEmail({
+      ...commonPayload,
+      security: sc,
+    }).catch((err) => console.warn('[store] security clearance email failed (non-blocking):', err));
+
+    sendBuildingPassEmail({
+      ...commonPayload,
+      building: bp,
+    }).catch((err) => console.warn('[store] building pass email failed (non-blocking):', err));
+
+    return { ...sub, reference, submittedAt };
   }
 
+  // Mock mode -- commit directly to in-memory record.
   const all = read(KEY_REQUESTS, []);
   const idx = all.findIndex((r) => r.id === requestId);
   if (idx < 0) throw new Error('Request not found');
@@ -933,22 +1020,45 @@ export async function submitForApproval(requestId, sections = {}) {
     personal: {}, securityClearance: {}, buildingPass: {}, conflictOfInterest: {},
     createdAt: now(),
   };
-  const updated = {
+  const merged = {
     ...prev,
     ...sections,
-    status: 'submitted',
+    status: 'approved',
     submittedAt,
+    approvedAt: submittedAt,
     currentSection: 'review',
   };
-  all[idx] = { ...all[idx], status: 'pending_approval', draftSubmission: updated };
+  const req = all[idx];
+  const p = merged.personal || {};
+  const sc = merged.securityClearance || {};
+  const bp = merged.buildingPass || {};
+  all[idx] = {
+    ...req,
+    status: 'completed',
+    submission: {
+      submittedAt,
+      reference,
+      givenName: req.givenName,
+      familyName: req.familyName,
+      preferredName: p.preferredName,
+      dob: p.dob,
+      mobile: p.mobile || sc.mobile,
+      emergencyName: p.emergencyName,
+      emergencyPhone: p.emergencyPhone,
+      relationship: p.relationship,
+      securityClearance:
+        sc.clearanceRequired || sc.previousClearanceLevel || sc.clearanceLevel,
+    },
+    draftSubmission: merged,
+  };
   write(KEY_REQUESTS, all);
   addNotification({
-    kind: 'pending_approval',
-    title: `Awaiting manager approval — ${all[idx].givenName} ${all[idx].familyName}`,
-    body: 'Candidate submitted the onboarding form. Manager review required.',
+    kind: 'completed',
+    title: `Onboarding completed -- ${req.givenName} ${req.familyName}`,
+    body: 'Candidate submitted the onboarding form. Identity record created.',
     requestId,
   });
-  return updated;
+  return { ...merged, reference };
 }
 
 export async function listPendingApprovals(managerEmail) {
