@@ -1228,8 +1228,3 @@ function ReviewBlock({ title, rows, onEdit }) {
     </div>
   );
 }
-        ))}
-      </dl>
-    </div>
-  );
-}
