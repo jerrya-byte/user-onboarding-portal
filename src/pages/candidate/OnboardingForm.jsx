@@ -266,13 +266,24 @@ function FormView({ req, initialDraft, isPreview }) {
     conflictOfInterest,
   });
 
-  // Keep the security-clearance DOB in lock-step with the Personal-section DOB,
-  // since the SC field is now shown read-only and sourced from Personal.
+  // Keep the security-clearance DOB and Mobile in lock-step with the
+  // Personal-section values -- both fields are now shown read-only on
+  // the SC page and sourced from Personal Details.
   useEffect(() => {
-    if ((securityClearance.dob || '') !== (personal.dob || '')) {
-      setSecurityClearance((s) => ({ ...s, dob: personal.dob || '' }));
-    }
-  }, [personal.dob, securityClearance.dob]);
+    setSecurityClearance((s) => {
+      const next = { ...s };
+      let changed = false;
+      if ((s.dob || '') !== (personal.dob || '')) {
+        next.dob = personal.dob || '';
+        changed = true;
+      }
+      if ((s.mobile || '') !== (personal.mobile || '')) {
+        next.mobile = personal.mobile || '';
+        changed = true;
+      }
+      return changed ? next : s;
+    });
+  }, [personal.dob, personal.mobile]);
 
   const validateCurrent = () => {
     const e = {};
@@ -289,11 +300,9 @@ function FormView({ req, initialDraft, isPreview }) {
     if (currentKey === 'security_clearance') {
       if (!securityClearance.legalSurname?.trim()) e.legalSurname = 'Required';
       if (!securityClearance.legalFirstName?.trim()) e.legalFirstName = 'Required';
-      // DOB is shown read-only here and carried forward from Personal,
-      // so we don't re-validate it on this section. CSID is optional.
-      if (!securityClearance.mobile?.trim()) e.mobile = 'Required';
-      else if (!/^\d{10}$/.test(securityClearance.mobile.replace(/[\s-]/g, '')))
-        e.mobile = 'Mobile must be 10 digits';
+      // DOB and Mobile are shown read-only here and carried forward from
+      // Personal, so we don't re-validate them on this section. CSID is
+      // optional ("If known").
       if (!securityClearance.positionTitle?.trim()) e.positionTitle = 'Required';
       if (!securityClearance.apsLevel) e.apsLevel = 'Required';
       if (!securityClearance.clearanceRequired) e.clearanceRequired = 'Required';
@@ -536,7 +545,7 @@ function FormView({ req, initialDraft, isPreview }) {
                       onClick={onFinalSubmit}
                       disabled={submitting}
                     >
-                      {submitting ? 'Submitting…' : 'Submit for manager approval'}
+                      {submitting ? 'Submitting…' : 'Submit application'}
                     </button>
                   )}
                 </div>
@@ -695,17 +704,16 @@ function SecurityClearanceSection({ state, onChange, errOf, prefilledFields = {}
       <Field
         label="Mobile number"
         required
-        hint="10 digits — no country code or spaces."
-        error={errOf('mobile')}
+        prefilled
+        prefillNote="Carried forward from the Personal Details page"
       >
         <TextInput
           type="tel"
           inputMode="numeric"
           maxLength={10}
-          placeholder="0412345678"
-          value={state.mobile || ''}
-          onChange={set('mobile')}
-          error={!!errOf('mobile')}
+          prefilled
+          value={personal.mobile || ''}
+          readOnly
         />
       </Field>
 
@@ -1215,6 +1223,11 @@ function ReviewBlock({ title, rows, onEdit }) {
             <dt className="text-ink-soft">{k}</dt>
             <dd className="m-0 break-words">{v}</dd>
           </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
         ))}
       </dl>
     </div>
